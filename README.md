@@ -1,75 +1,124 @@
-# Aero Topos: Emergent Deterministic Intelligence
+# Aero Topos (Phase IV)
 
-Aero Topos is an experimental computational substrate designed to explore the cultivation of emergent cognitive behaviors out of a highly constrained, deterministic, and zero-allocation execution framework. Moving away from traditional connectionist models that dominate continuous parameter optimization over dense, continuous vector spaces, Aero Topos executes abstract reasoning strictly through the physical collapse and reduction of multi-dimensional topological task graphs.
+Aero Topos is a continuous-time, sheaf-theoretic optimization substrate designed to parse, route, and execute complex logical structures at bare-silicon velocity. By collapsing traditional step-by-step conditional code blocks into parallelized vector mathematics, the system evaluates emergent, nested micro-dependencies simultaneously while dynamically adapting its internal properties to fit the hardware it is running on.
 
----
-
-## The Core Goal
-
-The ultimate objective of this repository is to prove the theoretical feasibility of a non-human, topologically-driven model of intelligence. Instead of attempting to mimic human-centric natural language narration or linear attention loops, Aero Topos represents logical relationships as static geometric structures that resolve themselves at hardware limits with zero dynamic heap overhead.
-
-The architecture operates on three foundational invariants derived from advanced computer science and quantum simulation paradigms:
-
-### 1. In-Situ Conservation & Plasticity
-
-To adapt and learn, an intelligent system requires structural plasticity—the ability to modify its own wiring. While standard systems require heavy heap memory allocation to build new nodes and edges, Aero Topos operates within a strict conservation law. The execution graph is bounded inside a finite, pre-allocated topological arena modeled as a permutation matrix over a fixed set of coordinate slots. Learning is achieved through the dynamic permutation of existing wires—analogous to biological synaptic pruning—reusing physical memory slots during local active-pair rewrites to preserve a constant memory footprint.
-
-### 2. Contraction-Based Tensor Logic
-
-Abstract reasoning is mapped to Pedro Domingos's formulation of Tensor Logic, proving that universally quantified logical rules are mathematically isomorphic to high-dimensional tensor equations written in Einstein summation notation. Existential quantifications correspond directly to tensor contractions. Conjunction, implication, and deduction occur simultaneously via the parallel physical collapse of the task graph manifolds rather than sequential linguistic processing.
-
-### 3. Exogenous Physical Grounding
-
-Closed self-referential optimization loops suffer from a severe degradation vector known as model collapse or the curse of recursion. When an optimization engine modifies its own rules based purely on synthetic metrics, entropy monotonically approaches zero, resulting in hyper-specialized and brittle topologies. Aero Topos solves this by anchoring its selection loops directly to an exogenous physical signal—forcing the fitness landscape to adapt to the material complexity of the hardware through real-world execution latencies and L1 data cache line misses.
+> ### ⚠️ System Status & Maintenance Notice
+> **Aero Topos Phase IV is a fully realized, self-contained personal research substrate.** This repository represents a completed architectural milestone in continuous-time neuro-symbolic design. 
+> * **Contributions:** Pull Requests, Issue tracking, and Feature requests are locked.
+> * **Maintenance:** Active public tracking is disabled; the platform operates at its theoretical ceiling.
+> * **License:** Provided completely as-is for local deployment, analytical branching, and personal experimentation.
 
 ---
 
-## The Bootstrap Experiment
+## 1. The Topology Core (How It Runs)
 
-This repository was bootstrapped using a live, self-hosting genetic optimization loop orchestrated by **Aero Future**. The experiment utilized the parent engine's multi-objective Pareto optimization framework (NSGA-II) to iteratively generate, test, and tune the foundational code assets of Aero Topos.
+Traditional software architectures evaluate code via discrete, step-by-step logic gates and linear dependency trees. Aero Topos replaces this paradigm with a continuous, fluid geometric workspace. 
+
+The system maps your software's functional dependencies into an interconnected coordinate graph ($M$) and processes local routing paths through an internal rule matrix ($U$). Execution is handled as a single, multi-linear wave pass using an accelerated variation of Girard's **Geometry of Interaction (GoI)** formula:
+
+$$EX(M, U) = (I - U \cdot M)^{-1} \cdot U$$
+
 
 ```
-[Aero Future Substrate]
-│
-├── Ingests Declarative Scientific Calculus Rules
-├── Compiles 1D Universal AST Mapping Realities
-└── Activates Multi-Objective NSGA-II Evolution Core
-│
-▼
-[Type-Safe Graph Mutations & Selection]
-│
-├── Evaluates Hardware Timing Constraints
-├── Enforces 3-State Cycle Detection Safety
-└── Verified 98.5%+ Speed Gain Efficiency Targets
-│
-▼
-Deployed Codebase ──► [Aero Topos Production Reality]
+
+```
+[ Local Context / Input Streams ]
+                │
+                ▼
+
 ```
 
-### Architectural Subsystems Lowered into Python
+┌─────────────────────────────────┐
+│    Topological Sheaf Workspace  │ ◄─── Continuous Self-Synthesis Flow
+│     EX = (I - U · M)⁻¹ · U      │        (Neural ODE Integration)
+└─────────────────────────────────┘
+│
+▼
+[ Unified Consensus Output ]
 
-The resulting visible code assets realize the theoretical vectors of the research paper directly within concrete, human-readable modules:
+```
 
-| Subsystem Component | Script Target | Operational Execution Mechanics |
-| --- | --- | --- |
-| **Topological Arena** | `src/topos/arena.py` | Manages local active-pair interaction net rewrites with O(1) auxiliary allocation through memory index recycling. |
-| **Tensor Logic Engine** | `src/topos/tensor_logic.py` | Executes multi-linear tensor contractions over Einstein indexing and distributes serialized attention KV snapshots. |
-| **Biochemical Homeostasis** | `src/topos/homeostasis.py` | Models tasks as virtual molecules to route execution branches around hardware faults via redundant coordinates. |
-| **Exogenous Telemetry** | `src/topos/telemetry.py` | Instruments high-precision timing anomalies and page-fault behaviors to inject real-world entropy into the optimization loop. |
-| **Topos Compiler Front-End** | `src/topos/compiler.py` | Parses symbolic declarative rule syntax strings and lowers variable dependencies directly to relational matrices. |
+Instead of running slow looping routines, Topos compiles these relationships into native GPU/XLA machine instructions. While the execution wave computes, an internal **Metamorphic Gradient Pass** uses parallelized differential equation loops to solve the analytical derivative:
 
----
+$$\frac{\partial \mathcal{L}}{\partial U}$$
 
-## Core System Characteristics
-
-Aero Topos explicitly contrasts against traditional connectionist and dynamic virtual machine runtime structures:
-
-- **No Dynamic Garbage Collection:** Latency profiles are strictly deterministic and bounded by graph depth, entirely removing runtime jitters caused by memory tracking and heap reclamation.
-- **Ahead-Of-Time (AOT) Cycle Safety:** Logical loops, infinite regressions, and vicious topological deadlocks are completely blocked at the ingestion gate by a three-state coloring algorithm and cryptographic SHA-256 fingerprint tracking.
-- **Decoupled Kinetic Layer:** Serves as a zero-dependency, high-performance execution layer designed to safely ground the unstructured, probabilistic outputs of neural network planning agents inside physically constrained hardware environments.
+This gradient automatically updates the routing rule parameters in real time. The entire self-synthesis flow is continuously stabilized by a non-commutative quantale network and bounded by continuous **Hecke-Maass automorphic damping coefficients**, preventing numerical divergence and maintaining structural stability under heavy workloads.
 
 ---
 
-## License
+## 2. Capabilities (What You Can Do With It)
 
-This architecture is open-source under the MIT License. Use it freely, evolve it infinitely.
+Aero Topos acts as an ultra-fast, context-aware, self-correcting logic engine. It is designed to swallow messy, multi-layered data streams and output mathematically optimal execution paths.
+
+### System Inputs
+* **Declarative System Constraints:** Text-based instructions or logical rules defining how elements must relate to one another.
+* **Contradictory Contexts:** Multiple, independent, or superficially conflicting data streams derived from distinct local agents or sub-networks.
+* **Bare-Silicon Telemetry:** Real-time feedback loop parameters including processing latencies, memory bandwidth bounds, and hardware entropy signatures.
+
+### Emergent Outputs
+* **Global Structural Consensus:** A mathematically verified resolution that harmonizes conflicting local views into a globally consistent state without crashing or dropping data.
+* **The Execution Matrix:** An instant, zero-allocation routing pass representing the simultaneous evaluation of your entire dependency topology.
+* **Autonomous Blueprint Optimization:** A dynamically rewritten system configuration (`self_host.aero`) that locks in the exact learning rates, integration steps, and spectral damping bounds that achieved peak performance on your specific hardware.
+
+Additionally, Topos retains the native graph-based task running and build commands inherited from **Aero Future**. However, rather than traversing deep recursive trees on the CPU, dependency resolution and memoization are handled instantly via multi-linear tensor contractions within the shared memory arena.
+
+---
+
+## 3. How To Use It
+
+Aero Topos runs completely in-process within a zero-heap pre-allocated spatial arena, bypassing operating system subprocess overheads and dynamic allocation delays.
+
+### Environment Setup
+Ensure your environment is running the updated high-performance acceleration libraries:
+```bash
+pip install --upgrade numpy jax jaxlib
+pip install diffrax triton tree-sitter
+
+```
+
+### Verification Pass
+
+To verify that the JAX-compiled math substrate, univalent Souriau matchers, and simplicial sheaf restriction layers compile flawlessly on your active hardware, execute the main validation module:
+
+```bash
+python main_topos.py
+
+```
+
+### Launching the Self-Hosted Evolution Engine
+
+To kick off the automated genetic algorithm loop and allow the system to map its own hyperparameter boundaries, invoke the evolution script with your target workspace parameters:
+
+```bash
+# Usage: python evolve.py <workspace_dir> <max_generations> [population_size]
+python evolve.py . 10 16
+
+```
+
+As the loop executes, you will observe near-instantaneous generational updates as the engine screens candidate configuration populations at hardware velocity, locking in stable parameters under `status=PASSED`.
+
+---
+
+## 4. Substrate Infrastructure & Dependencies
+
+The runtime architecture balances high-performance tensor computing with advanced semantic parsing and validation layers:
+
+* **Syntax & AST Analysis:** Uses `tree-sitter` to power robust cross-language Abstract Syntax Tree (AST) parsing for languages like Rust, C, C++, and Fortran. Python validation loops are safely handled via the native standard library `ast` module, while any missing compiler grammars degrade gracefully by transparently skipping that language space.
+
+
+* **Accelerated Vector Substrate:** Driven by `numpy>=2.0.0`, `jax`, and `scipy` to power hardware profiling, XLA machine-code compilation, and the genetic evolution engine. High-order ODE sweeps are evaluated natively via `diffrax` integration kernels.
+
+
+* **Topological Mapping:** Utilizing `networkx` to anchor the underlying semantic mapping layers (UAST graphs) and coordinate caching structures.
+
+
+* **SMT Constraint Verification:** Backed by the `z3-solver` to protect the substrate's execution boundaries via the Precision Shield validation suite.
+
+
+* **Distributed Extensions:** Built with lazy-imported hooks for `fabric` (SSH remote worker provisioning) and `kubernetes` (K8s pod workers). If these distributed modules are absent or unconfigured, the system seamlessly falls back to local execution without requiring external dependencies.
+
+
+
+```
+
+```
