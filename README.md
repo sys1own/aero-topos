@@ -2,12 +2,6 @@
 
 Aero Topos is a continuous-time, sheaf-theoretic optimization substrate designed to parse, route, and execute complex logical structures at bare-silicon velocity. By collapsing traditional step-by-step conditional code blocks into parallelized vector mathematics, the system evaluates emergent, nested micro-dependencies simultaneously while dynamically adapting its internal properties to fit the hardware it is running on.
 
-> ### ⚠️ System Status & Maintenance Notice
-> **Aero Topos Phase IV is a fully realized, self-contained personal research substrate.** This repository represents a completed architectural milestone in continuous-time neuro-symbolic design. 
-> * **Contributions:** Pull Requests, Issue tracking, and Feature requests are locked.
-> * **Maintenance:** Active public tracking is disabled; the platform operates at its theoretical ceiling.
-> * **License:** Provided completely as-is for local deployment, analytical branching, and personal experimentation.
-
 ---
 
 ## 1. The Topology Core (How It Runs)
