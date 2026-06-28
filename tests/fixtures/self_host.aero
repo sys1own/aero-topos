@@ -1,0 +1,28 @@
+[system]
+name = "aeronova-self-hosting-core"
+strategy = "universal-engine"
+ephemeral_code = true             
+
+[context_registry]
+  [context_registry.compiler_brain]
+  path = "./main.py"                # Pointing directly to its own active running code
+  language = "python"
+  preserve_original_logic = false   # Set to false to trigger active decomposition loops
+
+[scaling]
+  auto_split_threshold = 300      # Force code decomposition thresholds
+  max_module_complexity = 40       
+  hierarchy_depth = 4
+
+[graph]
+dependencies = []
+boundaries = ["compiler_brain"]
+targets = ["compiler_brain"]
+
+[compiler]
+toolchain = "python3"
+optimization_level = "balanced"   
+
+[cortex]
+exploration_epsilon = 0.100000    
+learning_rate = 0.00001

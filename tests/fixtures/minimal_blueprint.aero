@@ -1,0 +1,16 @@
+[system]
+name = "aero-nova"
+version = "0.1.0"
+strategy = "microkernel"
+ephemeral_code = true
+
+[context_registry]
+# Initially empty – users will add contexts here
+
+[abstractions]
+# Legacy rewrite rules (can be populated later)
+
+[scaling]
+auto_split_threshold = 1500
+max_module_complexity = 200
+hierarchy_depth = 4

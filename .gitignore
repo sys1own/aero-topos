@@ -1,0 +1,25 @@
+# Python bytecode / caches
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+
+# Aero Future runtime / build artifacts
+.aero/
+build_artifacts/
+bin/aero_engine
+bin/aero_engine.backup
+
+# Block-universe ledger written at runtime
+context.aero
+invariant_schema_report.json
+
+# Compiled matrix asset + orchestration summary emitted by `main.py build`
+matrix.aeroc
+*.part2.aeroc
+WORKSPACE_AUDIT.md
+
+# Local environment
+.venv/
+venv/
+.env

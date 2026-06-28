@@ -1,0 +1,106 @@
+[meta]
+project_name = "Aero_Sandbox_Self_Evolution"
+target_version = "1.0.0-isolated"
+execution_mode = "strict_isolated_parametric"
+
+[graph]
+entrypoint = orchestrator
+targets = [{"name": "scanner", "source": "builder_brains/scanner.py", "output": "build_artifacts/scanner.optimized.py"}, {"name": "decision_tree", "source": "builder_brains/decision_tree.py", "output": "build_artifacts/decision_tree.optimized.py"}, {"name": "parameter_tuner", "source": "builder_brains/parameter_tuner.py", "output": "build_artifacts/parameter_tuner.optimized.py"}, {"name": "compactor", "source": "builder_brains/compactor.py", "output": "build_artifacts/compactor.optimized.py"}, {"name": "aero_translator", "source": "translator/aero_translator.py", "output": "build_artifacts/aero_translator.optimized.py"}]
+dependencies = {"scanner": [], "decision_tree": [], "parameter_tuner": [], "compactor": [], "aero_translator": []}
+workspace_mode = incremental
+allow_partial_graph = false
+
+[compiler]
+optimization_level = "O3"
+dead_code_elimination_passes = 6
+identifier_minification = false
+scope_aware_alpha_renaming = false
+strip_comments_and_dunders = true
+enforce_strict_typing_checks = false
+
+[cortex]
+target_accuracy_floor = 0.9950
+max_processing_latency_limit_us = 20000
+target_compression_ratio_ceiling = 0.2000
+kinetic_stagnation_window_size = 2
+experience_replay_save_threshold = 0.0001
+optimization_strategy_priority = "AGGRESSIVE_HYPER_MUTATION"
+
+# ---------------------------------------------------------------------------
+# Optional sections for large-scale physics simulation builds.
+# All of these are OPTIONAL: a blueprint that omits them behaves exactly as
+# before.  See README.md "Physics-Scale Build Configuration" for details.
+# ---------------------------------------------------------------------------
+
+[libraries]
+# Numerical library auto-tuning. blas/lapack: auto|mkl|openblas|none.
+blas = "auto"
+lapack = "auto"
+mpi = false
+mpi_flavor = "openmpi"
+cuda = "none"
+
+[distributed]
+# Distributed compilation. Disabled by default -> single-machine builds.
+enabled = false
+worker_nodes = []
+cache_sharing = "nfs"
+
+[gpu]
+# GPU offloading. Disabled by default; backend: cuda|hip|opencl.
+enabled = false
+backend = "cuda"
+kernel_sources = []
+
+[physics]
+# Dimensional-analysis invariant checking.
+dimensions = ["length", "time", "mass", "charge"]
+symbolic_validation = false
+
+[precision_shield]
+# Strict floating-point control passed to rustc and the C/C++/GPU compilers.
+floating_point_contract = "disallow"
+fast_math_override = false
+ieee_compliance = "strict"
+# Mixed/enhanced precision: double | quad | arbitrary.
+default_float = "double"
+arbitrary_precision_bits = 128
+per_zone_overrides = {}
+auto_detect_need = false
+
+[hpc]
+# HPC scheduler integration. scheduler: slurm | pbs | none.
+scheduler = "none"
+queue = "cpu"
+nodes = 1
+tasks_per_node = 1
+walltime = "01:00:00"
+environment = {"module_load": [], "env_vars": {}}
+build_on_login_node = true
+post_build_run = false
+
+[runtime]
+# Runtime feedback loop. Off by default to keep development fast.
+enable_feedback = false
+benchmark_command = ""
+metrics_to_collect = ["wall_time"]
+accuracy_reference = ""
+feedback_weight = 0.3
+
+[frameworks]
+# Optional physics-framework integration (deal.II / OpenFOAM / custom).
+# Each entry is a JSON object, e.g.:
+#   dealii = {"version": "9.5", "modules": ["deal.II"]}
+
+[validation]
+# Automated physical validation suite (gatekeeper for the Pareto front).
+suite = ""
+tolerance = 1e-8
+test_cases = []
+execution_command = ""
+validation_required = true
+
+[context]
+# External source trees to import + repair before the build. Each source is a
+# JSON object: {"path","language","purpose","repair_rules","target_mapping"}.
+sources = []

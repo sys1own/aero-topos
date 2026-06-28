@@ -1,0 +1,52 @@
+[meta]
+project_name = "Aero_Physics_Simulator"
+target_version = "1.0.0"
+execution_mode = "strict_isolated_parametric"
+
+[graph]
+entrypoint = orchestrator
+targets = [{"name": "pi_validator", "source": "src/python/orchestrator.py", "output": "build_artifacts/pi_validator.optimized.py"}]
+dependencies = {"pi_validator": []}
+workspace_mode = incremental
+allow_partial_graph = false
+
+[compiler]
+optimization_level = "O3"
+dead_code_elimination_passes = 6
+identifier_minification = false
+strip_comments_and_dunders = true
+
+[cortex]
+target_accuracy_floor = 0.9990
+max_processing_latency_limit_us = 20000
+
+# ---------------------------------------------------------------------------
+# Physics-scale build configuration (optional sections).
+# ---------------------------------------------------------------------------
+
+[libraries]
+blas = "openblas"
+lapack = "openblas"
+mpi = true
+mpi_flavor = "openmpi"
+
+[distributed]
+enabled = true
+worker_nodes = ["node-0", "node-1"]
+cache_sharing = "redis"
+
+[gpu]
+enabled = true
+backend = "cuda"
+kernel_sources = ["src/cuda/integrate.cu"]
+
+[physics]
+dimensions = ["x", "y", "z", "t"]
+symbolic_validation = true
+
+[precision_shield]
+floating_point_contract = "disallow"
+fast_math_override = false
+ieee_compliance = "strict"
+default_float = "double"
+arbitrary_precision_bits = 256

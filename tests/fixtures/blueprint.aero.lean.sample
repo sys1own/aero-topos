@@ -1,0 +1,17 @@
+# ---------------------------------------------------------------------------
+# Sample ultra-lean blueprint (the "Invisible Configuration Layer").
+#
+# The entire project is described as a few lines of semantic *intent*.  The
+# execution DAG, per-target languages, FFI/language boundaries and self-healing
+# error-correction loops are all INFERRED from the project directory.
+#
+# Inspect what gets inferred (no build) with:
+#     python main.py infer --blueprint blueprint.aero.lean.sample
+#     python main.py infer --blueprint blueprint.aero.lean.sample --json
+# ---------------------------------------------------------------------------
+
+project "biophysical_trader"
+
+ingest   = ["./research/genomics.md", "./research/market_liquidity.txt"]
+targets  = ["cpp_core", "python_dashboard"]
+optimize = "maximum_hardware"

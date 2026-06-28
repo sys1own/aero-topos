@@ -1,0 +1,31 @@
+# Aero Multi-Tool -- runtime dependencies.
+#
+# tree-sitter + language grammars power cross-language AST parsing
+#   (Python is parsed with the stdlib ``ast`` module; Rust/C/C++/Fortran via
+#   tree-sitter).  Missing grammars degrade gracefully -- that language is
+#   simply skipped.
+# numpy / scipy power the evolutionary engine and hardware profiling.
+# networkx is used by the semantic mapper (UAST graph) and memoization deps.
+# z3-solver backs the Precision Shield SMT validation.
+
+tree-sitter>=0.25,<0.26
+tree-sitter-python>=0.23,<0.25
+tree-sitter-rust>=0.24,<0.25
+tree-sitter-c>=0.24,<0.25
+tree-sitter-cpp>=0.23,<0.24
+tree-sitter-fortran>=0.5,<0.6
+numpy>=1.24,<2.0
+scipy>=1.11,<2.0
+networkx>=3.1,<4.0
+z3-solver>=4.12,<5.0
+PyYAML>=6.0,<7.0
+
+# --- Optional: distributed build backends -----------------------------------
+# Only needed when [distributed] mode targets real workers.  Both are
+# lazy-imported: with them absent (or no workers configured) the coordinator
+# transparently falls back to local execution, so single-machine builds never
+# require these packages.
+#   fabric     -> SSH-based remote workers
+#   kubernetes -> Kubernetes pod workers
+fabric>=3.0,<4.0
+kubernetes>=29.0,<32.0

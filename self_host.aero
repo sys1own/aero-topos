@@ -1,0 +1,61 @@
+[workspace]
+root = "/content/aero-topos"
+build_dir = ".aero/bootstrap_stage"
+cache_dir = ".aero/cache"
+exclude = [".git", "__pycache__", "tests"]
+
+[cortex]
+engine_mode = "infinity_categorical_evolve"
+optimization_strategy = "maass_depth_aspect_bounds"
+target_accuracy_floor = 0.9999
+
+[neuro_symbolic]
+embedding_dimension = 16
+t_norm_selection = "non_commutative_quantale"
+gradient_prune_threshold = 0.005
+
+[compiler]
+optimization_level = "univalent_homotopy"
+precision_shield_compliance = "strict"
+default_float = "complex128"
+
+[evolution]
+enabled = true
+max_generations = 50
+population_size = 32
+mutation_rate = 0.150
+crossover_rate = 0.800
+test_suite = "tests/invariants/run_all.sh"
+context_ledger = "context.aero"
+
+# ---------------------------------------------------------------------------
+# Phase IV Metamorphic & Homotopical Genome Boundaries
+# ---------------------------------------------------------------------------
+[evolution.genome.learning_rate]
+path = "evolution.hyperparameters.lr"
+type = "float"
+min = 0.001
+max = 0.100
+step = 0.005
+default = 0.05
+
+[evolution.genome.spectral_nu]
+path = "evolution.hyperparameters.spectral_nu"
+type = "float"
+min = 0.001
+max = 0.050
+step = 0.001
+default = 0.01
+
+[evolution.genome.integration_step]
+path = "evolution.hyperparameters.dt0"
+type = "float"
+min = 0.01
+max = 0.20
+step = 0.01
+default = 0.10
+
+[evolution.hyperparameters]
+lr = 0.072702
+spectral_nu = 0.013927
+dt0 = 0.181218

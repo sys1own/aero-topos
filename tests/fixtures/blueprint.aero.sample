@@ -1,0 +1,38 @@
+# ---------------------------------------------------------------------------
+# Sample blueprint.aero written in the declarative block DSL.
+#
+# Validate it (without building) with either of:
+#     python -m blueprint_lang blueprint.aero.sample
+#     python main.py check --blueprint blueprint.aero.sample
+#
+# The grammar is tiny:
+#     <block-type> "<name>" {
+#         key = value          # value: "string" | number | true/false | [list]
+#     }
+# Comments start with '#' or '//'.  See blueprint_lang/ for the full parser.
+# ---------------------------------------------------------------------------
+
+project "my_universal_app" {
+    version     = "1.0.0"
+    description = "A cross-language universal application"
+    authors     = ["aero-team", "contributors"]
+}
+
+target "core_engine" {
+    language = "cpp"
+    sources  = ["src/core/**/*.cpp", "src/core/**/*.hpp"]
+    flags    = ["-O3", "-std=c++20"]
+}
+
+target "math_kernels" {
+    language = "rust"
+    sources  = ["src/kernels/**/*.rs"]
+    requires = ["core_engine"]
+}
+
+target "bindings" {
+    language = "python"
+    requires = ["core_engine", "math_kernels"]
+    sources  = ["src/bindings/*.py"]
+    optional = true
+}

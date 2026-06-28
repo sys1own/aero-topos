@@ -1,0 +1,314 @@
+{
+  "project": {
+    "name": "aero-multi-tool",
+    "version": "2.0.0",
+    "description": "Next-generation build orchestration with self-evolution capabilities",
+    "repository": "https://github.com/sys1own/aero-multi-tool.git",
+    "maintainers": ["sys1own"],
+    "license": "MIT",
+
+    "evolutionary_bootstrap": {
+      "enabled": true,
+      "max_generations": 100,
+      "population_size": 32,
+      "sandboxing": "isolated-process-namespace",
+      "fitness_objectives": {
+        "compilation_latency": {
+          "weight": 0.35,
+          "metric": "wall_time_ms",
+          "target": "< 1000"
+        },
+        "memory_peak_rss": {
+          "weight": 0.35,
+          "metric": "bytes",
+          "target": "< 500MB"
+        },
+        "binary_footprint": {
+          "weight": 0.30,
+          "metric": "bytes",
+          "target": "< 50MB"
+        }
+      },
+      "mutation_vectors": {
+        "rustc_codegen_flags": [
+          "-C target-cpu=native",
+          "-C opt-level=3",
+          "-C lto=fat",
+          "-C codegen-units=1"
+        ],
+        "ast_inlining_aggressiveness": {
+          "range": [0, 100],
+          "step": 10,
+          "default": 50
+        },
+        "pyo3_garbage_collection_interval_cycles": {
+          "range": [100, 10000],
+          "step": 500,
+          "default": 1000
+        },
+        "parallel_compilation_threads": {
+          "range": [1, 16],
+          "step": 1,
+          "default": 8
+        },
+        "lto_threshold": {
+          "range": [0, 100],
+          "step": 5,
+          "default": 75
+        }
+      },
+      "validation_suite": {
+        "test_command": "cargo test --all && pytest tests/ -v",
+        "required_coverage_minimum": 0.95,
+        "timeout_seconds": 300
+      },
+      "pareto_frontier": {
+        "enable_nondominated_sorting": true,
+        "crowding_distance": true,
+        "elitism": true
+      }
+    }
+  },
+
+  "analysis": {
+    "semantic_proximity_mapping": {
+      "ffi_type": "PyO3",
+      "source_roots": {
+        "python": "./src/python",
+        "rust": "./src/native",
+        "c": "./src/c",
+        "cpp": "./src/cpp",
+        "fortran": "./src/fortran"
+      },
+      "tracing_modes": {
+        "context_sensitive": true,
+        "path_sensitive": true,
+        "cross_language_escape_analysis": true,
+        "flow_sensitive": true
+      },
+      "refactoring": {
+        "dead_code_elimination_across_boundary": true,
+        "struct_packing_alignment_optimization": true,
+        "inline_python_calls": true,
+        "unify_type_representations": true
+      },
+      "uast_generation": {
+        "language_parsers": {
+          "python": "native_ast",
+          "rust": "tree_sitter",
+          "c": "tree_sitter",
+          "cpp": "tree_sitter",
+          "fortran": "tree_sitter"
+        },
+        "unified_node_types": {
+          "function": true,
+          "class": true,
+          "variable": true,
+          "module": true,
+          "import": true,
+          "call": true,
+          "global": true,
+          "type": true,
+          "gpu_kernel": true
+        }
+      }
+    }
+  },
+
+  "precision_shield": {
+    "enforce_strict_invariants": true,
+    "smt_validation_backend": "z3",
+    "floating_point_contract": "disallow",
+    "fast_math_override": false,
+    "ieee_compliance": "strict",
+    "default_float": "double",
+    "arbitrary_precision_bits": 128,
+    "per_zone_overrides": {},
+    "auto_detect_need": false,
+    "shield_zones": [
+      {
+        "identifier": "cryptographic_core",
+        "files": [
+          "src/crypto/mod.rs",
+          "src/crypto/curves.rs",
+          "src/crypto/hashes.rs"
+        ],
+        "protection_level": "absolute_immutable",
+        "tolerated_precision_loss": 0.0,
+        "validation_rules": [
+          "no_constant_folding",
+          "preserve_original_order",
+          "no_associative_reordering"
+        ]
+      },
+      {
+        "identifier": "neural_network_layers",
+        "files": [
+          "src/ml/layers.py",
+          "src/ml/activations.py"
+        ],
+        "protection_level": "invariant_preservation",
+        "tolerated_precision_loss": 1e-9,
+        "floating_point_precision": "64-bit",
+        "validation_rules": [
+          "preserve_identity_operations",
+          "no_fused_operations",
+          "maintain_batch_normalization_invariants"
+        ]
+      },
+      {
+        "identifier": "critical_calculation_engine",
+        "files": [
+          "src/engine/calculations.rs",
+          "src/engine/formulas.py"
+        ],
+        "protection_level": "invariant_preservation",
+        "tolerated_precision_loss": 1e-6,
+        "floating_point_precision": "64-bit"
+      }
+    ],
+    "smt_timeout_ms": 5000,
+    "fallback_on_smt_failure": "conservative"
+  },
+
+  "hardware_profiling": {
+    "probe_at_compile_time": true,
+    "profiling_strategy": "active-micro-benchmark",
+    "benchmarks": {
+      "cache_hierarchy": {
+        "stride_sizes": [32, 64, 128, 256, 512],
+        "max_buffer_mb": 128,
+        "iterations": 1000
+      },
+      "simd_throughput": {
+        "test_vectors": ["avx2", "avx512", "neon", "sse4.2"],
+        "test_sizes": [8, 16, 32, 64, 128]
+      },
+      "memory_bandwidth": {
+        "allocation_modes": ["sequential", "random_page", "strided"],
+        "block_sizes": [64, 256, 1024, 4096]
+      },
+      "instruction_latency": {
+        "operations": ["add", "mul", "div", "sqrt", "sin", "cos"],
+        "precision": ["f32", "f64", "i32", "i64"]
+      }
+    },
+    "dynamic_recipe_generator": {
+      "polyhedral_tiling_adjustment": true,
+      "unroll_factor_limits": {
+        "min": 2,
+        "max": 16
+      },
+      "vectorization_analysis": true,
+      "autovectorization_hints": true,
+      "cache_blocking_strategy": "multi_level"
+    },
+    "profile_storage": "./.aero/hardware_profiles/",
+    "profile_retention_days": 30
+  },
+
+  "memoization": {
+    "engine": "query-driven-salsa",
+    "granularity": "ast-node-level",
+    "storage": {
+      "path": "./.aero/query_cache",
+      "max_cache_size_gb": 20,
+      "compression": "zstd",
+      "backend": "lmdb"
+    },
+    "strategies": {
+      "ignore_comments_and_whitespace": true,
+      "propagate_semantic_signatures_only": true,
+      "cross_file_type_propagation": true,
+      "incremental_parsing": true,
+      "fingerprint_versioning": true
+    },
+    "dependency_tracking": {
+      "enable_cycle_detection": true,
+      "on_cycle": "warn_and_skip",
+      "max_depth": 100
+    },
+    "cache_invalidation": {
+      "on_file_change": "semantic_delta",
+      "on_config_change": "full_rebuild",
+      "manual_cleanup": "cargo clean && rm -rf .aero/query_cache"
+    }
+  },
+
+  "build_system": {
+    "parallelism": {
+      "max_concurrent_jobs": 8,
+      "job_scheduler": "work_stealing"
+    },
+    "output": {
+      "build_dir": "./build",
+      "target_dir": "./target",
+      "log_dir": "./logs",
+      "artifact_dir": "./artifacts"
+    },
+    "testing": {
+      "unit_tests": "cargo test && pytest tests/unit",
+      "integration_tests": "pytest tests/integration",
+      "benchmarks": "cargo bench && pytest tests/benchmarks"
+    }
+  },
+
+  "libraries": {
+    "blas": "auto",
+    "lapack": "auto",
+    "mpi": false,
+    "mpi_flavor": null,
+    "cuda": "none"
+  },
+
+  "distributed": {
+    "enabled": false,
+    "worker_nodes": [],
+    "cache_sharing": "nfs"
+  },
+
+  "gpu": {
+    "enabled": false,
+    "backend": "cuda",
+    "kernel_sources": []
+  },
+
+  "physics": {
+    "dimensions": [],
+    "symbolic_validation": false,
+    "variable_dimensions": {}
+  },
+
+  "hpc": {
+    "scheduler": "none",
+    "queue": "cpu",
+    "nodes": 1,
+    "tasks_per_node": 1,
+    "walltime": "01:00:00",
+    "environment": {"module_load": [], "env_vars": {}},
+    "build_on_login_node": true,
+    "post_build_run": false
+  },
+
+  "runtime": {
+    "enable_feedback": false,
+    "benchmark_command": "",
+    "metrics_to_collect": ["wall_time"],
+    "accuracy_reference": "",
+    "feedback_weight": 0.3
+  },
+
+  "frameworks": {},
+
+  "validation": {
+    "suite": "",
+    "tolerance": 1e-8,
+    "test_cases": [],
+    "execution_command": "",
+    "validation_required": true
+  },
+
+  "context": {
+    "sources": []
+  }
+}

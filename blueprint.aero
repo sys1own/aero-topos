@@ -1,0 +1,31 @@
+[system]
+name = "aero-nova-massive-evolution"
+strategy = "universal-engine"
+ephemeral_code = false
+
+[context_registry.core_orchestrator]
+path = "./main.py"
+language = "python"
+preserve_original_logic = true
+
+[context_registry.anyon_extension]
+path = "/content/lib.rs"
+language = "rust"
+preserve_original_logic = false
+
+[scaling]
+auto_split_threshold = 90        # Extreme structural fragmentation trigger
+max_module_complexity = 9        # Aggressive restriction boundary mapping
+hierarchy_depth = 4
+
+[graph]
+targets = [{name = "core_orchestrator", source = "translator/core_orchestrator.py", output = "build_artifacts/core_orchestrator.optimized.py"}, {name = "anyon_extension", source = "translator/anyon_extension.py", output = "build_artifacts/anyon_extension.optimized.py"}]
+dependencies = []
+boundaries = ["core_orchestrator"]
+
+[compiler]
+toolchain = "python3"
+optimization_level = "aggressive"
+
+[dag]
+"translator_core_orchestrator_py" = []

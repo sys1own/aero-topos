@@ -1,0 +1,151 @@
+[
+  {
+    "state": {
+      "current_score": 0.959615,
+      "current_cycle": 1,
+      "fsm_state": "conservative_scan",
+      "primary_strategy": "AGGRESSIVE_MUTATION",
+      "resolved_strategy": "AGGRESSIVE_MUTATION"
+    },
+    "action": "execute_polyglot_decomposition",
+    "result": 0.959615,
+    "parameter_matrix": {},
+    "recorded_at": 1782285122.498
+  },
+  {
+    "state": {
+      "current_score": 0.959615,
+      "current_cycle": 2,
+      "fsm_state": "conservative_scan",
+      "primary_strategy": "AGGRESSIVE_MUTATION",
+      "resolved_strategy": "AGGRESSIVE_MUTATION"
+    },
+    "action": "execute_polyglot_decomposition",
+    "result": 0.959615,
+    "parameter_matrix": {
+      "exploration_epsilon": 0.287614,
+      "crossover_probability": 0.205116,
+      "tournament_k": 7.0,
+      "population_size": 77.0,
+      "learning_rate": 1e-05,
+      "elite_ratio": 0.074921,
+      "discount_gamma": 0.895821,
+      "mutation_sigma": 0.388233
+    },
+    "recorded_at": 1782285125.563
+  },
+  {
+    "state": {
+      "current_score": 0.959615,
+      "current_cycle": 3,
+      "fsm_state": "conservative_scan",
+      "primary_strategy": "AGGRESSIVE_MUTATION",
+      "resolved_strategy": "AGGRESSIVE_MUTATION"
+    },
+    "action": "boost_mutation_sigma",
+    "result": 0.959615,
+    "parameter_matrix": {
+      "exploration_epsilon": 0.287614,
+      "crossover_probability": 0.205116,
+      "tournament_k": 7.0,
+      "population_size": 77.0,
+      "learning_rate": 1e-05,
+      "elite_ratio": 0.074921,
+      "discount_gamma": 0.895821,
+      "mutation_sigma": 0.388233
+    },
+    "recorded_at": 1782285128.63
+  },
+  {
+    "state": {
+      "current_score": 0.959615,
+      "current_cycle": 1,
+      "fsm_state": "conservative_scan",
+      "primary_strategy": "CONSERVATIVE",
+      "resolved_strategy": "CONSERVATIVE"
+    },
+    "action": "increase_patience",
+    "result": 0.959615,
+    "parameter_matrix": {},
+    "recorded_at": 1782285204.126
+  },
+  {
+    "state": {
+      "current_score": 0.959615,
+      "current_cycle": 2,
+      "fsm_state": "conservative_scan",
+      "primary_strategy": "CONSERVATIVE",
+      "resolved_strategy": "CONSERVATIVE"
+    },
+    "action": "increase_patience",
+    "result": 0.959615,
+    "parameter_matrix": {
+      "exploration_epsilon": 0.287614,
+      "crossover_probability": 0.205116,
+      "tournament_k": 7.0,
+      "population_size": 77.0,
+      "learning_rate": 1e-05,
+      "elite_ratio": 0.074921,
+      "discount_gamma": 0.895821,
+      "mutation_sigma": 0.388233
+    },
+    "recorded_at": 1782285206.942
+  },
+  {
+    "state": {
+      "current_score": 0.959302,
+      "current_cycle": 2,
+      "fsm_state": "conservative_scan",
+      "primary_strategy": "AGGRESSIVE_MUTATION",
+      "resolved_strategy": "AGGRESSIVE_MUTATION"
+    },
+    "action": "execute_polyglot_decomposition",
+    "result": 0.959302,
+    "parameter_matrix": {
+      "exploration_epsilon": 0.287614,
+      "crossover_probability": 0.205116,
+      "tournament_k": 7.0,
+      "population_size": 77.0,
+      "learning_rate": 1e-05,
+      "elite_ratio": 0.074921,
+      "discount_gamma": 0.895821,
+      "mutation_sigma": 0.388233
+    },
+    "recorded_at": 1782284994.151
+  },
+  {
+    "state": {
+      "current_score": 0.959302,
+      "current_cycle": 3,
+      "fsm_state": "conservative_scan",
+      "primary_strategy": "AGGRESSIVE_MUTATION",
+      "resolved_strategy": "AGGRESSIVE_MUTATION"
+    },
+    "action": "boost_mutation_sigma",
+    "result": 0.959302,
+    "parameter_matrix": {
+      "exploration_epsilon": 0.287614,
+      "crossover_probability": 0.205116,
+      "tournament_k": 7.0,
+      "population_size": 77.0,
+      "learning_rate": 1e-05,
+      "elite_ratio": 0.074921,
+      "discount_gamma": 0.895821,
+      "mutation_sigma": 0.388233
+    },
+    "recorded_at": 1782284997.17
+  },
+  {
+    "state": {
+      "current_score": 0.958333,
+      "current_cycle": 1,
+      "fsm_state": "conservative_scan",
+      "primary_strategy": "AGGRESSIVE_MUTATION",
+      "resolved_strategy": "AGGRESSIVE_MUTATION"
+    },
+    "action": "execute_polyglot_decomposition",
+    "result": 0.958333,
+    "parameter_matrix": {},
+    "recorded_at": 1782284991.108
+  }
+]
