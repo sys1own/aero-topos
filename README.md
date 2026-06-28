@@ -12,15 +12,10 @@ The system maps your software's functional dependencies into an interconnected c
 
 $$EX(M, U) = (I - U \cdot M)^{-1} \cdot U$$
 
-
-```
-
 ```
 [ Local Context / Input Streams ]
                 │
                 ▼
-
-```
 
 ┌─────────────────────────────────┐
 │    Topological Sheaf Workspace  │ ◄─── Continuous Self-Synthesis Flow
