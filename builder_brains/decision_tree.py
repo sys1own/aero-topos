@@ -505,6 +505,66 @@ def evaluate(metadata: Dict[str, Any], hyper_params: Dict[str, Any]) -> Dict[str
     thresholds: Dict[str, Any] = get_thresholds(manifest)
     ceilings: Dict[str, Any] = get_cost_ceilings(manifest)
     wall_limit: float = ceilings.get('decision_tree_max_wall_seconds', 15.0)
+
+    # ── Subcommand dominance gate ───────────────────────────────────────
+    # Developer intent overrides the entire evolutionary FSM.  If the active
+    # command is a build pass or the blueprint strategy is DIRECT_COMPILE, the
+    # decision tree must emit DIRECT_COMPILE without entering heuristic routing,
+    # complexity-density checks, size thresholds, or fallback cascades.
+    user_strategy = str(
+        metadata.get('blueprint_system_strategy', '')
+        or metadata.get('blueprint_strategy', '')
+        or metadata.get('user_strategy', '')
+    ).strip().upper()
+    active_command = str(metadata.get('active_command', '')).strip().lower()
+    if user_strategy == 'DIRECT_COMPILE' or active_command == 'build':
+        metadata['primary_strategy'] = 'DIRECT_COMPILE'
+        metadata['resolved_strategy'] = 'DIRECT_COMPILE'
+        metadata['strategy_mode'] = 'direct_compile'
+        metadata['selected_action_label'] = 'direct_compile'
+        metadata['selected_action'] = None
+        metadata['ranked_actions'] = []
+        metadata['decision_tree_wall_seconds'] = 0.0
+        metadata['decision_tree_status'] = 'complete'
+        metadata['fallback_cascade_depth'] = 0
+        metadata['fallback_router_stats'] = {
+            'max_depth': 6,
+            'cache_size': 0,
+            'ttl_seconds': 300.0,
+            'warm_bootstrap_count': 0,
+            'replay_buffer_attached': False,
+        }
+        metadata['experience_recorded'] = False
+        metadata['fsm_snapshot'] = {
+            'current_state': None,
+            'transition_count': 0,
+            'states': {},
+            'recent_transitions': [],
+            'kinetics': {
+                'history': [],
+                'window_capacity': 15,
+                'velocity': 0.0,
+                'acceleration': 0.0,
+                'velocity_epsilon': 0.005,
+                'acceleration_epsilon': 0.005,
+                'stall_cycles': 0,
+                'stall_patience': 15,
+                'stagnation_anomaly': False,
+            },
+        }
+        metadata['score_kinetics'] = metadata['fsm_snapshot']['kinetics']
+        metadata['kinetic_stagnation_anomaly'] = False
+        metadata['boost_mutation_sigma'] = False
+        metadata['exploration_depth'] = int(metadata.get('exploration_depth', 1))
+        metadata['priority_queue_stats'] = {
+            'capacity': int(params.get('priority_queue_capacity', 1024)),
+            'current_size': 0,
+            'total_pushed': 0,
+            'total_evicted': 0,
+        }
+        logger.info('DIRECT_COMPILE dominance gate engaged — bypassing FSM routing and fallback cascade')
+        return metadata
+
     layer_count: int = int(params.get('heuristic_layer_count', 5))
     queue_capacity: int = int(params.get('priority_queue_capacity', 1024))
     discount_gamma: float = float(params.get('cost_benefit_discount_gamma', 0.97))
