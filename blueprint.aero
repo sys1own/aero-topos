@@ -1,6 +1,6 @@
 [system]
 name = "aero-nova-massive-evolution"
-strategy = "universal-engine"
+strategy = "DIRECT_COMPILE"
 ephemeral_code = false
 
 [context_registry.core_orchestrator]

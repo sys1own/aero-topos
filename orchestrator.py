@@ -251,6 +251,8 @@ class CycleTelemetry:
     stage_results: List[StageResult]
     selected_action: str
     resolved_strategy: str
+    primary_strategy: str
+    strategy: str
     thread_pool_size: int
     stagnation: bool
     pareto_summary: Dict[str, Any]
@@ -751,6 +753,8 @@ def _apply_manifest_to_assets(workspace_root: Path, manifest: Dict[str, Any], me
         "# Builder Orchestration Summary",
         "",
         f"- cycle: {metadata.get('current_cycle', 1)}",
+        f"- strategy: {metadata.get('blueprint_system_strategy', metadata.get('blueprint_strategy', metadata.get('resolved_strategy', 'unknown')))}",
+        f"- primary_strategy: {metadata.get('primary_strategy', metadata.get('resolved_strategy', 'unknown'))}",
         f"- resolved_strategy: {metadata.get('resolved_strategy', 'unknown')}",
         f"- selected_action: {metadata.get('selected_action_label', 'unknown')}",
         f"- scan_coverage: {metadata.get('scan_coverage', 'n/a')}",
@@ -874,6 +878,8 @@ def run_direct_compile(
         workspace, _read_manifest_contract()
     )
     metadata["workspace_root"] = str(workspace)
+    metadata["strategy"] = "DIRECT_COMPILE"
+    metadata["primary_strategy"] = "DIRECT_COMPILE"
     metadata["resolved_strategy"] = "DIRECT_COMPILE"
     metadata["selected_action_label"] = "direct_compile"
     metadata["strategy_mode"] = "direct_compile"
@@ -992,7 +998,9 @@ def _render_telemetry(telemetry: CycleTelemetry) -> None:
     for stage in telemetry.stage_results:
         print(f"  - {stage.label:<16} {stage.status:<8} {stage.duration:>7.3f}s")
     print("-" * 78)
-    print(f" strategy: {telemetry.resolved_strategy}")
+    print(f" strategy: {telemetry.strategy}")
+    print(f" primary_strategy: {telemetry.primary_strategy}")
+    print(f" resolved_strategy: {telemetry.resolved_strategy}")
     print(f" action  : {telemetry.selected_action}")
     print(f" replay  : {telemetry.replay_status}")
     print(f" manifest: {telemetry.manifest_status}")
@@ -1197,23 +1205,33 @@ def run_build(
             # downgrading the strategy to CONSERVATIVE or AGGRESSIVE_MUTATION on
             # the basis of drift or anomaly heuristics, since either downgrade
             # bypasses the codegen backend and freezes metrics at zero.
-            if _direct_compile_mode and (
-                metadata.get("resolved_strategy") in ("AGGRESSIVE_MUTATION", "CONSERVATIVE")
-                or metadata.get("strategy_mode") == "aggressive_decomposition"
-                or metadata.get("selected_action_label") in (
-                    "execute_polyglot_decomposition", "boost_mutation_sigma"
+            if _direct_compile_mode:
+                _drifted = (
+                    metadata.get("resolved_strategy") not in ("DIRECT_COMPILE", None)
+                    or metadata.get("primary_strategy") not in ("DIRECT_COMPILE", None)
+                    or metadata.get("strategy_mode") == "aggressive_decomposition"
+                    or metadata.get("selected_action_label") in (
+                        "execute_polyglot_decomposition", "boost_mutation_sigma"
+                    )
                 )
-            ):
-                logger.info(
-                    "DIRECT_COMPILE clamp applied (cycle %d): resolved_strategy was %r, "
-                    "action was %r — resetting to BALANCED/hold for compiler pass.",
-                    cycle,
-                    metadata.get("resolved_strategy"),
-                    metadata.get("selected_action_label"),
-                )
-                metadata["resolved_strategy"] = "BALANCED"
-                metadata["selected_action_label"] = "none"
-                metadata["strategy_mode"] = "hold"
+                if _drifted:
+                    logger.info(
+                        "DIRECT_COMPILE clamp applied (cycle %d): resolved_strategy was %r, "
+                        "primary_strategy was %r, action was %r — locking all structural "
+                        "strategy keys to DIRECT_COMPILE for compiler pass.",
+                        cycle,
+                        metadata.get("resolved_strategy"),
+                        metadata.get("primary_strategy"),
+                        metadata.get("selected_action_label"),
+                    )
+                # User compilation intent is authoritative: lock every structural
+                # runtime key so no runtime default or reset to BALANCED /
+                # AGGRESSIVE_MUTATION can bypass the codegen backend.
+                metadata["strategy"] = "DIRECT_COMPILE"
+                metadata["resolved_strategy"] = "DIRECT_COMPILE"
+                metadata["primary_strategy"] = "DIRECT_COMPILE"
+                metadata["selected_action_label"] = "direct_compile"
+                metadata["strategy_mode"] = "direct_compile"
 
             # Physical decomposition: when the FSM triggers aggressive
             # decomposition, physically split source monoliths into modules.
@@ -1251,6 +1269,7 @@ def run_build(
             # root and updates the build-context compilation metrics with real
             # values so the write gate can trigger.
             if _direct_compile_mode:
+                metadata.setdefault("strategy", "DIRECT_COMPILE")
                 matrix_summary = _freeze_uast_matrix(compile_root, metadata)
                 metadata["matrix_output"] = matrix_summary["matrix_output"]
                 metadata["matrix_unit_count"] = matrix_summary["matrix_unit_count"]
@@ -1300,6 +1319,8 @@ def run_build(
                 stage_results=stage_results,
                 selected_action=str(metadata.get("selected_action_label", "unknown")),
                 resolved_strategy=str(metadata.get("resolved_strategy", "unknown")),
+                primary_strategy=str(metadata.get("primary_strategy", metadata.get("resolved_strategy", "unknown"))),
+                strategy=str(metadata.get("blueprint_system_strategy", metadata.get("blueprint_strategy", metadata.get("resolved_strategy", "unknown")))),
                 thread_pool_size=hyper_params["concurrent_worker_pool_size"],
                 stagnation=bool(metadata.get("kinetic_stagnation_anomaly") or metadata.get("is_stagnant")),
                 pareto_summary={
