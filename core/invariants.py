@@ -19,6 +19,7 @@ from typing import Any, Dict, List, Optional
 import numpy as np
 
 from core.hin_graph import HINGraph, InterfaceSignature
+from core.wavefront_scheduler import WavefrontScheduler
 
 
 class InvariantError(Exception):
@@ -177,6 +178,25 @@ class InvariantVerifier:
         else:
             if current < threshold:
                 raise SpectralDegradedError(original_lambda_2, current, threshold)
+
+    def verify_all(
+        self,
+        graph: HINGraph,
+        waves: Optional[List[List[str]]] = None,
+        original_lambda_2: Optional[float] = None,
+        threshold: float = 0.15,
+    ) -> List[List[str]]:
+        """Run edge, interface and (optionally) spectral checks on ``graph``.
+
+        Returns the wavefront schedule used for interface verification.
+        """
+        if waves is None:
+            waves = WavefrontScheduler().compute_wavefronts(graph)
+        self.verify_edge_conservation(graph)
+        self.verify_interface_signatures(graph, waves)
+        if original_lambda_2 is not None:
+            self.verify_spectral_stability(graph, original_lambda_2, threshold)
+        return waves
 
     @staticmethod
     def _type_name(value: Any) -> str:

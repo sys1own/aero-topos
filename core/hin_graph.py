@@ -88,6 +88,7 @@ class HINGraph:
     reverse_adj: Dict[str, List[str]]
     undirected_adj: Dict[str, List[str]]
     edge_types: List[Tuple[str, Any, Any]]
+    edge_records: List[Dict[str, Any]] = field(default_factory=list)
     interface_signatures: Dict[int, InterfaceSignature] = field(default_factory=dict)
 
     @classmethod
@@ -109,6 +110,7 @@ class HINGraph:
         node_types: Dict[str, str] = {}
         edges: List[Tuple[str, str, str]] = []
         edge_types: List[Tuple[str, Any, Any]] = []
+        edge_records: List[Dict[str, Any]] = []
 
         for node_id, node in getattr(network, "nodes", {}).items():
             expected_arity[node_id] = len(node.ports())
@@ -142,8 +144,17 @@ class HINGraph:
                 rev[b].append(a)
                 out_deg[a] += 1
                 in_deg[b] += 1
-                edge_types.append(
-                    (label, getattr(port, "type", None), getattr(target, "type", None))
+                src_type = getattr(port, "type", None)
+                dst_type = getattr(target, "type", None)
+                edge_types.append((label, src_type, dst_type))
+                edge_records.append(
+                    {
+                        "src": a,
+                        "dst": b,
+                        "label": label,
+                        "src_type": src_type,
+                        "dst_type": dst_type,
+                    }
                 )
 
         return cls(
@@ -157,4 +168,5 @@ class HINGraph:
             reverse_adj=rev,
             undirected_adj=undirected,
             edge_types=edge_types,
+            edge_records=edge_records,
         )

@@ -151,4 +151,4 @@ class WavefrontScheduler:
             levels[level].append(node)
             max_level = max(max_level, level)
 
-        return [levels[i] for i in range(max_level + 1)]
+        return [sorted(levels[i]) for i in range(max_level + 1)]

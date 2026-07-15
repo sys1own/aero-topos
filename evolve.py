@@ -28,8 +28,9 @@ import random
 import hashlib
 import logging
 import subprocess
+from copy import deepcopy
 from dataclasses import dataclass
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional, Set, Tuple
 
 import numpy as np
 
@@ -40,11 +41,52 @@ except ModuleNotFoundError:  # pragma: no cover - fallback for <3.11
 
 logger = logging.getLogger("aero.evolve")
 
-# Aero Topos integration
-from src.topos.arena import TopologicalArena
-from src.topos.tensor_logic import TensorLogicEngine
-from src.topos.telemetry import ExogenousTelemetryEngine
-from src.topos.compiler import ToposCompiler
+# Phase 5 Boundary-Aware execution engine (degrades if not yet wired)
+try:
+    from core.hin_graph import HINGraph, GraphMutation, InterfaceSignature
+except Exception:  # noqa: BLE001
+    HINGraph = None  # type: ignore[misc]
+    GraphMutation = None  # type: ignore[misc]
+    InterfaceSignature = None  # type: ignore[misc]
+
+try:
+    from core.wavefront_scheduler import WavefrontScheduler, CycleError as SchedulerCycleError
+except Exception:  # noqa: BLE001
+    WavefrontScheduler = None  # type: ignore[misc]
+    SchedulerCycleError = Exception  # type: ignore[misc]
+
+try:
+    from core.invariants import (
+        InvariantVerifier,
+        ArityMismatchError,
+        InterfaceChangedError,
+        PortTypeMismatchError,
+        InvariantError,
+    )
+except Exception:  # noqa: BLE001
+    InvariantVerifier = None  # type: ignore[misc]
+    ArityMismatchError = None  # type: ignore[misc]
+    InterfaceChangedError = None  # type: ignore[misc]
+    PortTypeMismatchError = None  # type: ignore[misc]
+    InvariantError = Exception  # type: ignore[misc]
+
+# Aero Topos integration (degrade if heavy tensor dependencies are absent)
+try:
+    from src.topos.arena import TopologicalArena
+except Exception:  # noqa: BLE001 - degrade gracefully
+    TopologicalArena = None  # type: ignore[misc]
+try:
+    from src.topos.tensor_logic import TensorLogicEngine
+except Exception:  # noqa: BLE001
+    TensorLogicEngine = None  # type: ignore[misc]
+try:
+    from src.topos.telemetry import ExogenousTelemetryEngine
+except Exception:  # noqa: BLE001
+    ExogenousTelemetryEngine = None  # type: ignore[misc]
+try:
+    from src.topos.compiler import ToposCompiler
+except Exception:  # noqa: BLE001
+    ToposCompiler = None  # type: ignore[misc]
 
 # --- Optional subsystems (import defensively; degrade if unavailable) ------
 try:
@@ -1168,6 +1210,526 @@ def evolve_aeroc(
         "output": out,
         "ledger_length": len(ledger),
     }
+
+
+class BoundaryAwareMutator:
+    """DPO-style mutator that preserves boundary interface signatures.
+
+    Given two parent graphs and a crossover point, this mutator extracts the
+    target subgraph from the first parent, replaces it with a donor subgraph
+    from the second parent, and then repairs the boundary with adaptor nodes so
+    that edge conservation and port typing remain intact.
+
+    The operation is transactional: a deep copy of the original graph is kept
+    as a backup and restored if any invariant check fails.
+    """
+
+    def __init__(
+        self,
+        verifier: Optional[Any] = None,
+        scheduler: Optional[Any] = None,
+    ) -> None:
+        if HINGraph is None or InterfaceSignature is None:
+            raise ImportError(
+                "BoundaryAwareMutator requires core.hin_graph to be importable"
+            )
+        if InvariantVerifier is None:
+            raise ImportError(
+                "BoundaryAwareMutator requires core.invariants to be importable"
+            )
+        self.verifier = verifier or InvariantVerifier()
+        self.scheduler = scheduler or WavefrontScheduler()
+
+    def _as_graph(self, obj: Any) -> HINGraph:
+        if isinstance(obj, HINGraph):
+            return obj
+        if hasattr(obj, "nodes"):
+            return HINGraph.from_hin_network(obj)
+        raise TypeError(
+            f"Expected HINGraph or HINNetwork-like object, got {type(obj).__name__}"
+        )
+
+    def _connected_component(self, graph: HINGraph, start: str) -> Set[str]:
+        """Return the forward-reachable directed subgraph rooted at ``start``."""
+        if start not in graph.nodes:
+            return set()
+        seen: Set[str] = set()
+        stack = [start]
+        while stack:
+            node = stack.pop()
+            if node in seen:
+                continue
+            seen.add(node)
+            for nbr in graph.adj_list.get(node, []):
+                if nbr not in seen:
+                    stack.append(nbr)
+        return seen
+
+    def _extract_subgraph(self, graph: HINGraph, start: str) -> Tuple[Set[str], List[dict]]:
+        nodes = self._connected_component(graph, start)
+        records = [
+            rec
+            for rec in graph.edge_records
+            if rec["src"] in nodes and rec["dst"] in nodes
+        ]
+        return nodes, records
+
+    def _remove_subgraph(self, graph: HINGraph, nodes_to_remove: Set[str]) -> None:
+        node_set = set(nodes_to_remove)
+        graph.nodes -= node_set
+        for n in node_set:
+            graph.adj_list.pop(n, None)
+            graph.reverse_adj.pop(n, None)
+            graph.undirected_adj.pop(n, None)
+            graph.in_degrees.pop(n, None)
+            graph.out_degrees.pop(n, None)
+            graph.expected_arity.pop(n, None)
+            graph.node_types.pop(n, None)
+        graph.edges = [
+            (s, d, l)
+            for s, d, l in graph.edges
+            if s not in node_set and d not in node_set
+        ]
+        graph.edge_records = [
+            rec
+            for rec in graph.edge_records
+            if rec["src"] not in node_set and rec["dst"] not in node_set
+        ]
+        # edge_types and adjacency are rebuilt on demand.
+
+    def _add_node(
+        self,
+        graph: HINGraph,
+        node_id: str,
+        node_type: str,
+        expected_arity: int,
+    ) -> None:
+        graph.nodes.add(node_id)
+        graph.node_types[node_id] = node_type
+        graph.expected_arity[node_id] = expected_arity
+        graph.adj_list.setdefault(node_id, [])
+        graph.reverse_adj.setdefault(node_id, [])
+        graph.undirected_adj.setdefault(node_id, [])
+        graph.in_degrees.setdefault(node_id, 0)
+        graph.out_degrees.setdefault(node_id, 0)
+
+    def _add_edge(
+        self,
+        graph: HINGraph,
+        src: str,
+        dst: str,
+        src_type: Any = None,
+        dst_type: Any = None,
+        label: Optional[str] = None,
+    ) -> None:
+        if label is None:
+            label = f"{src}:?->{dst}:?"
+        graph.edges.append((src, dst, label))
+        record = {
+            "src": src,
+            "dst": dst,
+            "label": label,
+            "src_type": src_type,
+            "dst_type": dst_type,
+        }
+        graph.edge_records.append(record)
+        graph.edge_types.append((label, src_type, dst_type))
+        graph.adj_list.setdefault(src, []).append(dst)
+        graph.reverse_adj.setdefault(dst, []).append(src)
+        graph.undirected_adj.setdefault(src, []).append(dst)
+        graph.undirected_adj.setdefault(dst, []).append(src)
+        graph.out_degrees[src] = graph.out_degrees.get(src, 0) + 1
+        graph.in_degrees[dst] = graph.in_degrees.get(dst, 0) + 1
+
+    def _rebuild_degrees(self, graph: HINGraph) -> None:
+        graph.adj_list = {n: [] for n in graph.nodes}
+        graph.reverse_adj = {n: [] for n in graph.nodes}
+        graph.undirected_adj = {n: [] for n in graph.nodes}
+        graph.in_degrees = {n: 0 for n in graph.nodes}
+        graph.out_degrees = {n: 0 for n in graph.nodes}
+        seen_undirected: Set[Tuple[str, str]] = set()
+        valid_edges: List[Tuple[str, str, str]] = []
+        valid_records: List[dict] = []
+        for rec in graph.edge_records:
+            s, d = rec["src"], rec["dst"]
+            if s not in graph.nodes or d not in graph.nodes:
+                continue
+            valid_records.append(rec)
+            valid_edges.append((s, d, rec["label"]))
+            graph.adj_list[s].append(d)
+            graph.reverse_adj[d].append(s)
+            key = tuple(sorted((s, d)))
+            if key not in seen_undirected:
+                seen_undirected.add(key)
+                graph.undirected_adj[s].append(d)
+                graph.undirected_adj[d].append(s)
+            graph.out_degrees[s] += 1
+            graph.in_degrees[d] += 1
+        graph.edges = valid_edges
+        graph.edge_records = valid_records
+        graph.edge_types = [
+            (r["label"], r["src_type"], r["dst_type"]) for r in valid_records
+        ]
+
+    def _fresh_adaptor_id(self, graph: HINGraph, prefix: str) -> str:
+        i = 0
+        while True:
+            node_id = f"{prefix}#{i}"
+            if node_id not in graph.nodes:
+                return node_id
+            i += 1
+
+    def _types_compatible(self, a: Any, b: Any) -> bool:
+        if a is None or b is None:
+            return True
+        if self.verifier is not None and hasattr(self.verifier, "_types_compatible"):
+            return bool(self.verifier._types_compatible(a, b))
+        return str(a) == str(b)
+
+    def _find_match(
+        self,
+        target_rec: dict,
+        donor_records: List[dict],
+        direction: str,
+    ) -> int:
+        """Return index of a compatible donor record, or -1 if none exists."""
+        for idx, d_rec in enumerate(donor_records):
+            if direction == "input":
+                # External source type must be compatible with donor input type.
+                if self._types_compatible(target_rec["src_type"], d_rec["dst_type"]):
+                    return idx
+            else:  # output
+                # Donor output type must be compatible with external target type.
+                if self._types_compatible(d_rec["src_type"], target_rec["dst_type"]):
+                    return idx
+        return -1
+
+    def extract_interface(self, graph: HINGraph, node_indices: Set[str]) -> dict:
+        """Return the boundary interface of ``node_indices`` within ``graph``.
+
+        The result contains:
+        * ``inputs`` and ``outputs`` maps from edge label to ``(src, dst)``.
+        * ``interface`` -- an :class:`InterfaceSignature` of the boundary labels.
+        * ``boundary_edges`` -- the full edge records crossing the boundary.
+        * ``input_records`` / ``output_records`` -- records split by direction.
+        """
+        node_set = set(node_indices)
+        interface = InterfaceSignature()
+        inputs: Dict[str, Tuple[str, str]] = {}
+        outputs: Dict[str, Tuple[str, str]] = {}
+        boundary_edges: List[dict] = []
+        input_records: List[dict] = []
+        output_records: List[dict] = []
+
+        for rec in graph.edge_records:
+            src, dst, label = rec["src"], rec["dst"], rec["label"]
+            src_in = src in node_set
+            dst_in = dst in node_set
+            if src_in and not dst_in:
+                outputs[label] = (src, dst)
+                interface.outputs.add(label)
+                boundary_edges.append(rec)
+                output_records.append(rec)
+            elif not src_in and dst_in:
+                inputs[label] = (src, dst)
+                interface.inputs.add(label)
+                boundary_edges.append(rec)
+                input_records.append(rec)
+
+        return {
+            "inputs": inputs,
+            "outputs": outputs,
+            "interface": interface,
+            "boundary_edges": boundary_edges,
+            "input_records": input_records,
+            "output_records": output_records,
+        }
+
+    def _normalize_interface(
+        self,
+        mutated: HINGraph,
+        target_iface: dict,
+        donor_iface: dict,
+        donor_rename: Dict[str, str],
+    ) -> None:
+        """Rewire boundary edges between the target's context and the donor.
+
+        Matched boundary edges are connected directly.  Surplus edges on either
+        side are bridged with adaptor, source, or sink nodes so that every port
+        keeps the arity and type it expects.
+        """
+        donor_nodes_list = sorted(set(donor_rename.values()))
+        donor_input_records = list(donor_iface.get("input_records", []))
+        donor_output_records = list(donor_iface.get("output_records", []))
+        target_input_records = list(target_iface.get("input_records", []))
+        target_output_records = list(target_iface.get("output_records", []))
+
+        donor_extra_arity: Dict[str, int] = {}
+
+        # -- inputs ------------------------------------------------------------
+        target_inputs_unmatched: List[dict] = []
+        for t_rec in target_input_records:
+            idx = self._find_match(t_rec, donor_input_records, "input")
+            if idx >= 0:
+                d_rec = donor_input_records.pop(idx)
+                new_dst = donor_rename[d_rec["dst"]]
+                self._add_edge(
+                    mutated,
+                    t_rec["src"],
+                    new_dst,
+                    t_rec["src_type"],
+                    d_rec["dst_type"],
+                    f"{t_rec['src']}:?->{new_dst}:?",
+                )
+            else:
+                target_inputs_unmatched.append(t_rec)
+
+        # Pair surplus target inputs with surplus donor inputs via an adaptor.
+        while target_inputs_unmatched and donor_input_records:
+            t_rec = target_inputs_unmatched.pop(0)
+            d_rec = donor_input_records.pop(0)
+            adapt_id = self._fresh_adaptor_id(mutated, "adapt_in")
+            self._add_node(mutated, adapt_id, "AdaptorNode", 0)
+            self._add_edge(
+                mutated,
+                t_rec["src"],
+                adapt_id,
+                t_rec["src_type"],
+                t_rec["src_type"],
+                f"{t_rec['src']}:?->{adapt_id}:?",
+            )
+            new_dst = donor_rename[d_rec["dst"]]
+            self._add_edge(
+                mutated,
+                adapt_id,
+                new_dst,
+                d_rec["dst_type"],
+                d_rec["dst_type"],
+                f"{adapt_id}:?->{new_dst}:?",
+            )
+            mutated.expected_arity[adapt_id] = 2
+
+        # Surplus target inputs that cannot be paired need a donor entry point.
+        for t_rec in target_inputs_unmatched:
+            donor_node = self._choose_donor_node(donor_nodes_list, "input")
+            adapt_id = self._fresh_adaptor_id(mutated, "adapt_in")
+            self._add_node(mutated, adapt_id, "AdaptorNode", 0)
+            self._add_edge(
+                mutated,
+                t_rec["src"],
+                adapt_id,
+                t_rec["src_type"],
+                t_rec["src_type"],
+            )
+            self._add_edge(
+                mutated,
+                adapt_id,
+                donor_node,
+                t_rec["src_type"],
+                t_rec["src_type"],
+            )
+            mutated.expected_arity[adapt_id] = 2
+            donor_extra_arity[donor_node] = donor_extra_arity.get(donor_node, 0) + 1
+
+        # Surplus donor inputs need a source value.
+        for d_rec in donor_input_records:
+            source_id = self._fresh_adaptor_id(mutated, "adapt_src")
+            self._add_node(mutated, source_id, "ValueSource", 1)
+            new_dst = donor_rename[d_rec["dst"]]
+            self._add_edge(
+                mutated,
+                source_id,
+                new_dst,
+                d_rec["dst_type"],
+                d_rec["dst_type"],
+            )
+            mutated.expected_arity[source_id] = 1
+
+        # -- outputs -----------------------------------------------------------
+        target_outputs_unmatched: List[dict] = []
+        for t_rec in target_output_records:
+            idx = self._find_match(t_rec, donor_output_records, "output")
+            if idx >= 0:
+                d_rec = donor_output_records.pop(idx)
+                new_src = donor_rename[d_rec["src"]]
+                self._add_edge(
+                    mutated,
+                    new_src,
+                    t_rec["dst"],
+                    d_rec["src_type"],
+                    t_rec["dst_type"],
+                    f"{new_src}:?->{t_rec['dst']}:?",
+                )
+            else:
+                target_outputs_unmatched.append(t_rec)
+
+        while target_outputs_unmatched and donor_output_records:
+            t_rec = target_outputs_unmatched.pop(0)
+            d_rec = donor_output_records.pop(0)
+            adapt_id = self._fresh_adaptor_id(mutated, "adapt_out")
+            self._add_node(mutated, adapt_id, "AdaptorNode", 0)
+            new_src = donor_rename[d_rec["src"]]
+            self._add_edge(
+                mutated,
+                new_src,
+                adapt_id,
+                d_rec["src_type"],
+                d_rec["src_type"],
+                f"{new_src}:?->{adapt_id}:?",
+            )
+            self._add_edge(
+                mutated,
+                adapt_id,
+                t_rec["dst"],
+                t_rec["dst_type"],
+                t_rec["dst_type"],
+                f"{adapt_id}:?->{t_rec['dst']}:?",
+            )
+            mutated.expected_arity[adapt_id] = 2
+
+        # Surplus target outputs need a donor exit point.
+        for t_rec in target_outputs_unmatched:
+            donor_node = self._choose_donor_node(donor_nodes_list, "output")
+            adapt_id = self._fresh_adaptor_id(mutated, "adapt_out")
+            self._add_node(mutated, adapt_id, "AdaptorNode", 0)
+            self._add_edge(
+                mutated,
+                donor_node,
+                adapt_id,
+                t_rec["dst_type"],
+                t_rec["dst_type"],
+            )
+            self._add_edge(
+                mutated,
+                adapt_id,
+                t_rec["dst"],
+                t_rec["dst_type"],
+                t_rec["dst_type"],
+            )
+            mutated.expected_arity[adapt_id] = 2
+            donor_extra_arity[donor_node] = donor_extra_arity.get(donor_node, 0) + 1
+
+        # Surplus donor outputs need a sink.
+        for d_rec in donor_output_records:
+            sink_id = self._fresh_adaptor_id(mutated, "adapt_sink")
+            self._add_node(mutated, sink_id, "ValueSink", 1)
+            new_src = donor_rename[d_rec["src"]]
+            self._add_edge(
+                mutated,
+                new_src,
+                sink_id,
+                d_rec["src_type"],
+                d_rec["src_type"],
+            )
+            mutated.expected_arity[sink_id] = 1
+
+        # Adjust the arity expectation of any donor node that received an
+        # additional boundary edge due to an unpaired target boundary.
+        for node_id, extra in donor_extra_arity.items():
+            mutated.expected_arity[node_id] = mutated.expected_arity.get(node_id, 0) + extra
+
+    def _choose_donor_node(self, donor_nodes: List[str], direction: str) -> str:
+        if not donor_nodes:
+            raise ValueError("No donor nodes available for interface normalization")
+        return donor_nodes[0]
+
+    def crossover(self, parent1: Any, parent2: Any, crossover_point: str) -> HINGraph:
+        """Replace the subgraph around ``crossover_point`` in ``parent1`` with
+        a donor subgraph from ``parent2``, normalizing the boundary.
+
+        If any invariant check fails after normalization the transaction is
+        aborted and the backup of ``parent1`` is returned unchanged.
+        """
+        graph_a = self._as_graph(parent1)
+        graph_b = self._as_graph(parent2)
+        backup = deepcopy(graph_a)
+        mutated = deepcopy(graph_a)
+
+        if crossover_point not in mutated.nodes:
+            logger.error(
+                "error: evolution failed: Type-safe mutation broke edge conservation: "
+                "asymmetric interface at selection boundaries."
+            )
+            return backup
+
+        target_nodes = self._connected_component(mutated, crossover_point)
+        if crossover_point in graph_b.nodes:
+            start_b = crossover_point
+        else:
+            # Pick the donor root whose arity signature most closely matches the
+            # crossover point; this maximizes the chance of a compatible boundary.
+            target_arity = graph_a.expected_arity.get(crossover_point, 0)
+            start_b = min(
+                graph_b.nodes,
+                key=lambda n: abs(graph_b.expected_arity.get(n, 0) - target_arity),
+            )
+        if start_b is None:
+            logger.error(
+                "error: evolution failed: Type-safe mutation broke edge conservation: "
+                "asymmetric interface at selection boundaries."
+            )
+            return backup
+
+        donor_nodes, donor_records = self._extract_subgraph(graph_b, start_b)
+        if not donor_nodes:
+            logger.error(
+                "error: evolution failed: Type-safe mutation broke edge conservation: "
+                "asymmetric interface at selection boundaries."
+            )
+            return backup
+
+        # Build a rename map that avoids collisions with existing node ids.
+        donor_rename: Dict[str, str] = {}
+        for old in donor_nodes:
+            new = f"donor::{old}"
+            while new in mutated.nodes:
+                new = f"donor::{new}"
+            donor_rename[old] = new
+
+        # Capture interfaces before the subgraph is removed.
+        target_iface = self.extract_interface(graph_a, target_nodes)
+        donor_iface = self.extract_interface(graph_b, donor_nodes)
+
+        # Replace target with donor.
+        self._remove_subgraph(mutated, target_nodes)
+        for old in donor_nodes:
+            new = donor_rename[old]
+            self._add_node(
+                mutated,
+                new,
+                graph_b.node_types.get(old, "Node"),
+                graph_b.expected_arity.get(old, 0),
+            )
+        for rec in donor_records:
+            self._add_edge(
+                mutated,
+                donor_rename[rec["src"]],
+                donor_rename[rec["dst"]],
+                rec["src_type"],
+                rec["dst_type"],
+                f"{donor_rename[rec['src']]}:?->{donor_rename[rec['dst']]}:?",
+            )
+
+        self._normalize_interface(mutated, target_iface, donor_iface, donor_rename)
+        self._rebuild_degrees(mutated)
+
+        # Finalize adaptor arity expectations after the graph is rebuilt.
+        for node_id in mutated.nodes:
+            if node_id.startswith("adapt_"):
+                mutated.expected_arity[node_id] = (
+                    mutated.in_degrees.get(node_id, 0)
+                    + mutated.out_degrees.get(node_id, 0)
+                )
+
+        try:
+            self.verifier.verify_all(mutated)
+        except (InvariantError, SchedulerCycleError):
+            logger.error(
+                "error: evolution failed: Type-safe mutation broke edge conservation: "
+                "asymmetric interface at selection boundaries."
+            )
+            return backup
+        return mutated
 
 
 if __name__ == "__main__":
