@@ -13,7 +13,7 @@ from __future__ import annotations
 import shutil
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Callable, Dict, List, Optional, Union
+from typing import Any, Callable, Dict, List, Optional, Tuple, Union
 
 from src.scaffold.decomposition import (
     DecompositionResult,
@@ -32,6 +32,7 @@ from src.scaffold.python_repo_generator import (
     generate_python_repo,
     infer_import_dependencies,
 )
+from src.scaffold.pre_write_validator import PreWriteValidator, ValidationError
 from src.scaffold.python_validator import PythonValidationRunner
 from src.scaffold.recovery import DiagnosticRecoveryRunner, RecoveryResult
 from src.scaffold.repo_generator import GeneratedRepo, build_spec, generate_repo
@@ -88,6 +89,50 @@ class ScaffoldEngine:
         if self.verbose and self._logger is not None:
             self._logger(message)
 
+    def _finalize_workspace(
+        self,
+        workspace: OutOfTreeWorkspace,
+        language: str,
+        build_info: Optional[Dict[str, Any]],
+        repo_dict: Dict[str, Any],
+    ) -> Tuple[bool, Dict[str, Any], str]:
+        """Run delegated validation and promote the staging workspace on success.
+
+        Returns ``(committed, build_info, workspace_path)``.  When validation fails
+        the staging workspace is cleaned up and ``build_info`` carries the external
+        command's output so the failure is reported against the generated code, not
+        the orchestration logic.
+        """
+        workspace_path = str(workspace.root)
+        if build_info is None:
+            build_info = {}
+        try:
+            result = self._pre_write_validator.validate(
+                workspace_path, language=language
+            )
+            build_info["pre_write_validation"] = {
+                "succeeded": True,
+                "command": " ".join(result.command) if result.command else "",
+                "output": result.output,
+                "return_code": result.return_code,
+            }
+            self._log("pre-write validation succeeded")
+        except ValidationError as exc:
+            build_info["succeeded"] = False
+            build_info["pre_write_validation"] = {
+                "succeeded": False,
+                "error": str(exc),
+                "output": exc.output,
+            }
+            self._log(f"pre-write validation failed: {exc}")
+            workspace.cleanup()
+            return False, build_info, workspace_path
+
+        workspace.commit()
+        workspace_path = str(workspace.root)
+        repo_dict["root"] = workspace_path
+        return True, build_info, workspace_path
+
     # ------------------------------------------------------------------
 
     def scaffold(
@@ -110,6 +155,7 @@ class ScaffoldEngine:
         merge_active: bool = False,
     ) -> ScaffoldResult:
         context = context or {}
+        self._pre_write_validator = PreWriteValidator(context)
 
         # Multi-file source ingestion matrix: a single path or a list of paths.
         raw_entries = source_entry if isinstance(source_entry, (list, tuple)) else [source_entry]
@@ -248,11 +294,17 @@ class ScaffoldEngine:
             # No language-specific test harness for raw .aeroc artifacts.
             build_info = {"tests": "skipped (no test harness for .aeroc artifacts)"}
 
+        committed, build_info, workspace_path = self._finalize_workspace(
+            workspace, "aeroc", build_info, repo_dict
+        )
+        if not committed and distribution_directory is not None:
+            self._log("scaffold: .aeroc artifact staging failed validation; not promoted")
+
         return ScaffoldResult(
             source=entry.to_dict(),
             repo=repo_dict,
             shield={"anchors": [], "applied": [], "changed": False, "skipped": "aeroc-artifact"},
-            workspace=str(workspace.root),
+            workspace=workspace_path,
             out_of_tree=True,
             language="aeroc",
             build=build_info,
@@ -337,11 +389,17 @@ class ScaffoldEngine:
             self._log("merge: skipped — --merge-active requires a successful --build")
 
         self._collect_aeroc_artifacts(entry, workspace.root, repo_dict)
+        committed, build_info, workspace_path = self._finalize_workspace(
+            workspace, "rust", build_info, repo_dict
+        )
+        if not committed and distribution_directory is not None:
+            self._log("scaffold: rust workspace failed validation; not promoted")
+
         return ScaffoldResult(
             source=entry.to_dict(),
             repo=repo_dict,
             shield=shield_report.to_dict(),
-            workspace=str(workspace.root),
+            workspace=workspace_path,
             out_of_tree=True,
             language="rust",
             build=build_info,
@@ -477,11 +535,17 @@ class ScaffoldEngine:
             build_info = self._validate_python(repo).to_dict()
 
         self._collect_aeroc_artifacts(entry, workspace.root, repo_dict)
+        committed, build_info, workspace_path = self._finalize_workspace(
+            workspace, "python", build_info, repo_dict
+        )
+        if not committed and distribution_directory is not None:
+            self._log("scaffold: python workspace failed validation; not promoted")
+
         return ScaffoldResult(
             source=entry.to_dict(),
             repo=repo_dict,
             shield={"anchors": [], "applied": [], "changed": False, "skipped": "python-target"},
-            workspace=str(workspace.root),
+            workspace=workspace_path,
             out_of_tree=True,
             language="python",
             build=build_info,
@@ -586,11 +650,17 @@ class ScaffoldEngine:
             build_info = result.to_dict()
 
         self._collect_aeroc_artifacts(entry, workspace.root, repo)
+        committed, build_info, workspace_path = self._finalize_workspace(
+            workspace, "python", build_info, repo
+        )
+        if not committed and distribution_directory is not None:
+            self._log("scaffold: python modular workspace failed validation; not promoted")
+
         return ScaffoldResult(
             source=entry.to_dict(),
             repo=repo,
             shield={"anchors": [], "applied": [], "changed": False, "skipped": "python-target"},
-            workspace=str(workspace.root),
+            workspace=workspace_path,
             out_of_tree=True,
             language="python",
             build=build_info,

@@ -230,6 +230,7 @@ def _default_optional_sections() -> Dict[str, Dict[str, Any]]:
             "tolerance": 1e-8,
             "test_cases": [],
             "execution_command": "",
+            "validation_cmd": "",
             "validation_required": True,
             "generate_test_shims": False,
         },
@@ -735,6 +736,8 @@ def normalize_optional_sections(sections: Dict[str, Dict[str, Any]]) -> Dict[str
             target["test_cases"] = _as_str_list("validation", "test_cases", validation["test_cases"])
         if "execution_command" in validation:
             target["execution_command"] = str(validation["execution_command"])
+        if "validation_cmd" in validation:
+            target["validation_cmd"] = str(validation["validation_cmd"])
         if "validation_required" in validation:
             target["validation_required"] = _as_bool("validation", "validation_required", validation["validation_required"])
         if "generate_test_shims" in validation:
@@ -1090,6 +1093,15 @@ def _parse_toml_native_blueprint(content: str, project_root: str) -> Dict[str, A
         "required_python_packages": bp.environment_contract.required_python_packages,
         "languages": bp.environment_contract.languages,
         "skip_defaults": bp.environment_contract.skip_defaults,
+    }
+    context["validation"] = {
+        "suite": bp.validation.suite,
+        "tolerance": bp.validation.tolerance,
+        "test_cases": bp.validation.test_cases,
+        "execution_command": bp.validation.execution_command,
+        "validation_cmd": bp.validation.validation_cmd,
+        "validation_required": bp.validation.validation_required,
+        "generate_test_shims": bp.validation.generate_test_shims,
     }
     return _attach_parser_validation(context)
 
