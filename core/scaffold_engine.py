@@ -176,13 +176,6 @@ def compile_polyglot_source(source_path: str, output_path: str) -> bool:
     _, ext = os.path.splitext(source_path)
     if ext == ".rs":
         print("[*] Intercepting polyglot pipeline: deploying Ephemeral Cargo Scaffolder.")
-        # Ensure both rustc AND cargo are present before a multi-crate build.
-        try:
-            from core.environment_bootstrap import RuntimeEnvironmentBootstrapper
-
-            RuntimeEnvironmentBootstrapper.verify_toolchain("rust")
-        except Exception:  # noqa: BLE001 - verification is best-effort
-            pass
         scaffolder = EphemeralCargoScaffolder()
         success = scaffolder.execute_cargo_compile(source_path, output_path)
         if success:

@@ -10,6 +10,7 @@ from pathlib import Path
 from typing import List, Optional, Sequence
 
 import orchestrator
+from core.verify_dependencies import ContractViolationError, VerifyDependencies
 
 logger = logging.getLogger("aero.main")
 
@@ -147,6 +148,12 @@ def build_command(args: argparse.Namespace) -> int:
         build_cycles = args.cycles if args.cycles is not None else int(config.get("cycles", 3))
 
     context = parse_blueprint(blueprint_path)
+    try:
+        VerifyDependencies(context).verify()
+    except ContractViolationError as exc:
+        print(str(exc), file=sys.stderr)
+        return 1
+
     system = context.get("system", {}) if isinstance(context.get("system"), dict) else {}
     strategy = str(system.get("strategy", "")).strip().upper()
 
@@ -272,6 +279,20 @@ def heal_command(args: argparse.Namespace) -> int:
 def scaffold_command(args: argparse.Namespace) -> int:
     """Generate a standalone, out-of-tree repository from a single source entry."""
     from src.scaffold import ScaffoldEngine, SourceEntryNotFound
+    from src.scaffold.source_resolver import infer_language
+
+    if not args.no_build:
+        # Infer the target language from the source path so we can check the
+        # relevant toolchain before any scaffolding or compilation begins.
+        src_path = Path(args.source_entry)
+        language = infer_language(src_path)
+        if language == "unknown":
+            language = "rust"
+        try:
+            VerifyDependencies.verify_language(language)
+        except ContractViolationError as exc:
+            print(str(exc), file=sys.stderr)
+            return 1
 
     dist = Path(args.distribution_directory) if args.distribution_directory else None
     engine = ScaffoldEngine(logger=print, verbose=True)
@@ -578,6 +599,13 @@ def aero_build_command(args: argparse.Namespace) -> int:
     if not os.path.isfile(source):
         print(f"error: source not found: {source}", file=sys.stderr)
         return 1
+    try:
+        # The Aero-Calculus pipeline is driven by Python code that relies on
+        # the core runtime packages; verify those before doing any work.
+        VerifyDependencies({"context_registry": {"source": {"language": "python"}}}).verify()
+    except ContractViolationError as exc:
+        print(str(exc), file=sys.stderr)
+        return 1
     output = args.aeroc_out or (os.path.splitext(source)[0] + ".aeroc")
     try:
         report = handle_aero_calculus_build(
@@ -832,12 +860,12 @@ _BOOTSTRAP_DONE = False
 
 
 def _maybe_bootstrap() -> None:
-    """Run the lightweight pre-flight bootstrap, unless under test/CI.
+    """No-op pre-flight guard.
 
-    Provisions missing dependencies and seeds a default ``blueprint.aero`` so a
-    fresh user is never halted by a missing pip library or absent workspace.
-    Skipped when a test runner is active, when explicitly disabled, or once it
-    has already completed -- so it is safe at the top of every command.
+    The legacy auto-bootstrapper has been replaced by the Environment Contract.
+    Dependency and toolchain checks are performed by the active command handler
+    against the parsed blueprint, so no automatic installation or workspace
+    seeding happens here.  The guard still short-circuits under test runners.
     """
     global _BOOTSTRAP_DONE
     if _BOOTSTRAP_DONE:
@@ -846,12 +874,6 @@ def _maybe_bootstrap() -> None:
         return
     if "unittest" in sys.modules or "pytest" in sys.modules:
         return
-    try:
-        from core.environment_bootstrap import RuntimeEnvironmentBootstrapper
-
-        RuntimeEnvironmentBootstrapper.verify_and_bootstrap()
-    except Exception as exc:  # noqa: BLE001 - never let bootstrap crash the CLI
-        print(f"[-] Bootstrap warning (continuing): {exc}", file=sys.stderr)
     _BOOTSTRAP_DONE = True
 
 
@@ -868,17 +890,13 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
 
 
 def cli_entry(argv: Optional[Sequence[str]] = None) -> int:
-    """Hardened process entry point: bootstrap, optional pre-flight audit,
-    dispatch -- with all errors trapped into elegant, actionable guidance
-    instead of bare Python stack traces.
+    """Hardened process entry point: optional pre-flight audit, dispatch.
+
+    All errors are trapped into elegant, actionable guidance instead of bare
+    Python stack traces.  Environment Contract violations are reported first so
+    the operator knows exactly which dependency is missing.
     """
     try:
-        from core.environment_bootstrap import RuntimeEnvironmentBootstrapper
-
-        RuntimeEnvironmentBootstrapper.verify_and_bootstrap()
-        global _BOOTSTRAP_DONE
-        _BOOTSTRAP_DONE = True
-
         # Opt-in full pre-flight self-healing audit (AERO_PREFLIGHT=1).  Kept
         # opt-in so routine commands stay zero-friction; the `audit` subcommand
         # runs it explicitly.
@@ -895,6 +913,9 @@ def cli_entry(argv: Optional[Sequence[str]] = None) -> int:
                 return 1
 
         return main(argv)
+    except ContractViolationError as exc:
+        print(str(exc), file=sys.stderr)
+        return 1
     except KeyboardInterrupt:
         print("\n[-] Interrupted by user.", file=sys.stderr)
         return 130

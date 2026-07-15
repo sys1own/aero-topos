@@ -134,6 +134,32 @@ class ContextBridge:
 
 
 @dataclass
+class EnvironmentContract:
+    """The ``[environment_contract]`` section: explicit host dependencies."""
+
+    required_tools: List[str] = field(default_factory=list)
+    required_python_packages: Dict[str, str] = field(default_factory=dict)
+    languages: List[str] = field(default_factory=list)
+    skip_defaults: bool = False
+
+    @classmethod
+    def from_dict(cls, data: Mapping[str, Any]) -> "EnvironmentContract":
+        raw_packages = data.get("required_python_packages")
+        packages: Dict[str, str] = {}
+        if isinstance(raw_packages, dict):
+            packages = {str(k): str(v) for k, v in raw_packages.items()}
+        elif isinstance(raw_packages, list):
+            packages = {str(p): str(p) for p in raw_packages}
+
+        return cls(
+            required_tools=[str(t) for t in _as_list(data.get("required_tools")) if t],
+            required_python_packages=packages,
+            languages=[str(l) for l in _as_list(data.get("languages")) if l],
+            skip_defaults=bool(data.get("skip_defaults", False)),
+        )
+
+
+@dataclass
 class LivingBlueprint:
     """A fully-parsed living blueprint.
 
@@ -146,6 +172,7 @@ class LivingBlueprint:
     abstractions: List[RewriteRule] = field(default_factory=list)
     scaling: Scaling = field(default_factory=Scaling)
     context_bridges: List[ContextBridge] = field(default_factory=list)
+    environment_contract: EnvironmentContract = field(default_factory=EnvironmentContract)
 
     # -- construction ---------------------------------------------------------
     @classmethod
@@ -176,12 +203,17 @@ class LivingBlueprint:
             if isinstance(bridge, Mapping)
         ]
 
+        environment_contract = EnvironmentContract.from_dict(
+            _as_mapping(data.get("environment_contract"))
+        )
+
         return cls(
             system=system,
             context_registry=registry,
             abstractions=abstractions,
             scaling=scaling,
             context_bridges=bridges,
+            environment_contract=environment_contract,
         )
 
     @classmethod

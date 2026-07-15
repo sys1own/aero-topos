@@ -68,6 +68,7 @@ _OPTIONAL_SECTIONS = (
     "validation",
     "context",
     "scaffold",
+    "environment_contract",
 )
 
 _ALLOWED_BLAS = {"auto", "mkl", "openblas", "none"}
@@ -233,6 +234,12 @@ def _default_optional_sections() -> Dict[str, Dict[str, Any]]:
             "generate_test_shims": False,
         },
         "context": {"sources": []},
+        "environment_contract": {
+            "required_tools": [],
+            "required_python_packages": {},
+            "languages": [],
+            "skip_defaults": False,
+        },
         "scaffold": {
             "source_entry": "",
             "auto_layout": False,
@@ -802,6 +809,33 @@ def normalize_optional_sections(sections: Dict[str, Dict[str, Any]]) -> Dict[str
                 )
             target["module_mapping"] = mapping
 
+    # --- [environment_contract] -------------------------------------
+    ec = sections.get("environment_contract")
+    if isinstance(ec, dict):
+        target = normalized["environment_contract"]
+        if "required_tools" in ec:
+            target["required_tools"] = _as_str_list(
+                "environment_contract", "required_tools", ec["required_tools"]
+            )
+        if "required_python_packages" in ec:
+            raw = ec["required_python_packages"]
+            if isinstance(raw, dict):
+                target["required_python_packages"] = {str(k): str(v) for k, v in raw.items()}
+            elif isinstance(raw, list):
+                target["required_python_packages"] = {str(p): str(p) for p in raw}
+            else:
+                raise BlueprintParseError(
+                    "[environment_contract] required_python_packages must be a dict or list"
+                )
+        if "languages" in ec:
+            target["languages"] = _as_str_list(
+                "environment_contract", "languages", ec["languages"]
+            )
+        if "skip_defaults" in ec:
+            target["skip_defaults"] = _as_bool(
+                "environment_contract", "skip_defaults", ec["skip_defaults"]
+            )
+
     return normalized
 
 
@@ -1051,6 +1085,12 @@ def _parse_toml_native_blueprint(content: str, project_root: str) -> Dict[str, A
         },
     }
     context.update(_default_optional_sections())
+    context["environment_contract"] = {
+        "required_tools": bp.environment_contract.required_tools,
+        "required_python_packages": bp.environment_contract.required_python_packages,
+        "languages": bp.environment_contract.languages,
+        "skip_defaults": bp.environment_contract.skip_defaults,
+    }
     return _attach_parser_validation(context)
 
 

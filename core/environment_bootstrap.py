@@ -1,58 +1,28 @@
-"""Automated runtime environment bootstrapper for Aero Future.
+# -*- coding: utf-8 -*-
+"""Environment contract helpers and explicit workspace initialization.
 
-Wraps the entire ecosystem in a zero-friction installation shell.  Before any
-pipeline command runs, :class:`RuntimeEnvironmentBootstrapper`:
-
-* **ingests dependencies** -- scans the live interpreter for the packages the
-  engine needs (``numpy`` and friends) and, if one is missing, silently
-  provisions it via ``sys.executable -m pip install`` instead of letting a
-  ``ModuleNotFoundError`` escape to the user;
-* **auto-initializes the workspace** -- if ``blueprint.aero`` is absent it
-  seeds a production-grade living blueprint (system definition, a mock context
-  registry and default ``auto_split_threshold`` metrics) so the tool never
-  crashes on a fresh checkout.
-
-All output is routed through the standard Aero Future telemetry headers so the
-user sees crisp, organized status lines rather than bare tracebacks.
-
-The bootstrapper is idempotent and side-effect-light: it can be invoked at the
-top of every command without repeating work, and it honors the
-``AERO_DISABLE_BOOTSTRAP`` environment variable so test harnesses and CI can
-opt out of provisioning entirely.
+This module no longer performs automatic package or toolchain installation.
+Provisioning has been replaced by :mod:`core.verify_dependencies`, which
+raises :class:`core.verify_dependencies.ContractViolationError` when the host
+environment does not satisfy the active blueprint.  The only side effects this
+module is allowed to produce are explicit ``main.py init`` workspace seeds.
 """
 
 from __future__ import annotations
 
-import importlib
-import importlib.util
 import os
-import shutil
-import subprocess
-import sys
-from typing import Dict, List
+from typing import Any, Dict, List, Optional
 
-# Map an importable module name to the pip distribution that provides it.
-REQUIRED_PACKAGES: Dict[str, str] = {
-    "numpy": "numpy",
-}
+from core.verify_dependencies import (
+    DEFAULT_PYTHON_PACKAGES,
+    SYSTEM_TOOLCHAINS,
+    ContractViolationError,
+    VerifyDependencies,
+)
 
-# System toolchains required per language: not just the compiler binary but the
-# high-level package manager needed for external-registry resolution.  A Rust
-# project needs both ``rustc`` AND ``cargo`` (cargo drives crate fetching).
-SYSTEM_TOOLCHAINS: Dict[str, List[str]] = {
-    "rust": ["rustc", "cargo"],
-    "auto": ["rustc", "cargo"],
-    "c": ["cc"],
-    "cpp": ["c++"],
-    "fortran": ["gfortran"],
-    "python": ["python3"],
-}
+# Backwards-compatible re-exports.
+REQUIRED_PACKAGES = DEFAULT_PYTHON_PACKAGES
 
-# Best-effort installer commands for provisioning a missing system binary.
-_TOOLCHAIN_PROVISIONERS: Dict[str, List[List[str]]] = {
-    "rustc": [["rustup", "toolchain", "install", "stable"]],
-    "cargo": [["rustup", "toolchain", "install", "stable"]],
-}
 
 # Default living-blueprint template seeded into a fresh workspace.
 DEFAULT_BLUEPRINT = """[system]
@@ -94,133 +64,85 @@ def _telemetry(line: str) -> None:
     print(line)
 
 
-class RuntimeEnvironmentBootstrapper:
-    """Autonomous pre-flight provisioning of dependencies and workspace."""
+class RuntimeEnvironmentBootstrapper(VerifyDependencies):
+    """Read-only environment verifier plus explicit workspace initialization.
 
-    #: set once a full ``verify_and_bootstrap`` pass has completed, so repeated
-    #: invocations across commands are no-ops (idempotent).
-    _completed = False
+    The legacy provisioning methods (``provision``, ``provision_system_binary``,
+    ``verify_and_bootstrap``) are gone.  Any code that still calls them receives
+    a :class:`ContractViolationError` instead of mutating the host.
+    """
 
-    # -- dependency ingestion ---------------------------------------------
+    # -- dependency checks --------------------------------------------------
     @classmethod
-    def missing_dependencies(cls, packages: Dict[str, str] | None = None) -> List[str]:
-        """Return the importable names that are not currently available."""
-        packages = packages or REQUIRED_PACKAGES
-        missing: List[str] = []
-        for module_name in packages:
-            if importlib.util.find_spec(module_name) is None:
-                missing.append(module_name)
-        return missing
+    def missing_dependencies(
+        cls, packages: Optional[Dict[str, str]] = None
+    ) -> List[str]:
+        """Return importable names from *packages* that are not installed."""
+        return VerifyDependencies.missing_dependencies(packages)
 
-    @classmethod
-    def provision(cls, pip_name: str) -> bool:
-        """Provision ``pip_name`` into the running instance sandbox.
-
-        Returns ``True`` on success.  Never raises: a failed install is logged
-        and reported as ``False`` so callers can degrade gracefully.
-        """
-        _telemetry(f"[*] Dynamically provisioning '{pip_name}' into sandbox instance...")
-        try:
-            subprocess.check_call(
-                [sys.executable, "-m", "pip", "install", pip_name],
-                stdout=subprocess.DEVNULL,
-                stderr=subprocess.STDOUT,
-            )
-        except (subprocess.CalledProcessError, OSError) as exc:
-            _telemetry(
-                f"[-] Automated package provisioning failed for '{pip_name}': {exc}"
-            )
-            return False
-        # Refresh import caches so the freshly installed module is importable.
-        importlib.invalidate_caches()
-        _telemetry(f"[+] Successfully bootstrapped package: '{pip_name}'")
-        return True
-
-    @classmethod
-    def verify_dependencies(cls, packages: Dict[str, str] | None = None) -> bool:
-        """Ensure every required dependency is importable, provisioning as needed."""
-        packages = packages or REQUIRED_PACKAGES
-        ok = True
-        for module_name in cls.missing_dependencies(packages):
-            _telemetry(
-                f"[*] Missing environmental runtime dependency detected: '{module_name}'"
-            )
-            if not cls.provision(packages[module_name]):
-                ok = False
-        return ok
-
-    # -- system toolchain verification ------------------------------------
     @classmethod
     def missing_toolchain_binaries(cls, language: str) -> List[str]:
-        """Return required system binaries for ``language`` that are not on PATH."""
-        required = SYSTEM_TOOLCHAINS.get(language, [])
-        return [binary for binary in required if shutil.which(binary) is None]
+        """Return required binaries for *language* that are absent from PATH."""
+        return VerifyDependencies.missing_toolchain_binaries(language)
 
     @classmethod
-    def provision_system_binary(cls, binary: str) -> bool:
-        """Best-effort provisioning of a missing system binary via a known installer.
+    def verify_dependencies(cls, packages: Optional[Dict[str, str]] = None) -> bool:
+        """Return ``True`` when all *packages* are importable.
 
-        Returns ``True`` if the binary is present afterwards.  Never raises: a
-        missing installer or a failed install is logged and reported as ``False``
-        so the caller can surface actionable guidance instead of crashing.
+        No installation is attempted; this is a pure read-only check.
         """
-        if shutil.which(binary) is not None:
-            return True
-        for command in _TOOLCHAIN_PROVISIONERS.get(binary, []):
-            installer = command[0]
-            if shutil.which(installer) is None:
-                continue
-            _telemetry(f"[*] Provisioning system toolchain '{binary}' via '{installer}'...")
-            try:
-                subprocess.check_call(
-                    command, stdout=subprocess.DEVNULL, stderr=subprocess.STDOUT
-                )
-            except (subprocess.CalledProcessError, OSError) as exc:
-                _telemetry(f"[-] Toolchain provisioning failed for '{binary}': {exc}")
-                continue
-            if shutil.which(binary) is not None:
-                _telemetry(f"[+] Successfully provisioned system toolchain: '{binary}'")
-                return True
-        return shutil.which(binary) is not None
+        return not cls.missing_dependencies(packages)
 
     @classmethod
     def verify_toolchain(cls, language: str) -> bool:
-        """Verify (and best-effort provision) the system toolchain for ``language``.
+        """Return ``True`` when every binary for *language* is on PATH."""
+        return VerifyDependencies.verify_toolchain(language)
 
-        For a Rust/``auto`` project this guarantees both ``rustc`` and ``cargo``
-        are available so external-registry crate resolution can proceed.
-        Returns ``True`` when every required binary is present.
-        """
-        missing = cls.missing_toolchain_binaries(language)
-        if not missing:
-            return True
-        _telemetry(
-            f"[*] Missing system toolchain binaries for '{language}': {missing}"
+    # -- disabled provisioning hooks ----------------------------------------
+    @classmethod
+    def provision(cls, pip_name: str) -> bool:
+        """Automatic package installation is disabled by the Environment Contract."""
+        raise ContractViolationError(
+            f"Contract Violation: automatic installation of '{pip_name}' is not allowed. "
+            f"Install it manually, e.g. `pip install {pip_name}`."
         )
-        ok = True
-        for binary in missing:
-            if not cls.provision_system_binary(binary):
-                ok = False
-                _telemetry(
-                    f"[-] Toolchain binary '{binary}' is unavailable. Install it "
-                    f"(e.g. via rustup) to enable '{language}' multi-crate builds."
-                )
-        return ok
 
-    # -- workspace auto-init ----------------------------------------------
+    @classmethod
+    def provision_system_binary(cls, binary: str) -> bool:
+        """Automatic toolchain installation is disabled by the Environment Contract."""
+        raise ContractViolationError(
+            f"Contract Violation: automatic installation of system binary '{binary}' "
+            "is not allowed. Install the required toolchain manually."
+        )
+
+    @classmethod
+    def verify_and_bootstrap(cls, root: str = ".", *, force: bool = False) -> bool:
+        """Legacy pre-flight hook: disabled under the Environment Contract.
+
+        Automatic dependency ingestion and blueprint seeding during command
+        dispatch is no longer performed.  The active command handler is
+        responsible for running :meth:`VerifyDependencies.verify` against the
+        parsed blueprint before any build/scaffold work.
+        """
+        raise ContractViolationError(
+            "Contract Violation: automatic environment bootstrapping is disabled. "
+            "Use the active command's pre-flight contract check or `main.py init` instead."
+        )
+
+    # -- explicit workspace initialization ----------------------------------
     @classmethod
     def ensure_blueprint(cls, root: str = ".") -> bool:
         """Seed a default living ``blueprint.aero`` if one is absent.
 
-        Returns ``True`` if a blueprint was created, ``False`` if one already
-        existed (and was therefore preserved untouched).
+        This is only triggered by ``main.py init``; it is never called
+        automatically during a build.
         """
         blueprint_path = os.path.join(root, "blueprint.aero")
         if os.path.exists(blueprint_path):
             return False
 
         _telemetry("[*] No active blueprint.aero detected in workspace root.")
-        _telemetry("[*] Generating production-grade living blueprint template automatically...")
+        _telemetry("[*] Generating production-grade living blueprint template...")
 
         src_dir = os.path.join(root, "src")
         os.makedirs(src_dir, exist_ok=True)
@@ -239,7 +161,7 @@ class RuntimeEnvironmentBootstrapper:
     def init_workspace(cls, root: str = ".") -> Dict[str, object]:
         """Explicitly (re)initialize a project architecture under ``root``.
 
-        Backs the ``python main.py init`` command.  Always reports what it did.
+        Backs the ``python main.py init`` command.
         """
         _telemetry_banner("AERO FUTURE WORKSPACE INITIALIZATION")
         os.makedirs(root, exist_ok=True)
@@ -269,35 +191,11 @@ class RuntimeEnvironmentBootstrapper:
         )
         return report
 
-    # -- orchestration -----------------------------------------------------
-    @classmethod
-    def verify_and_bootstrap(cls, root: str = ".", *, force: bool = False) -> bool:
-        """Full pre-flight pass: dependencies + workspace.  Idempotent.
-
-        Honors ``AERO_DISABLE_BOOTSTRAP`` (skips entirely) so tests/CI opt out.
-        Returns ``True`` when the environment is ready.
-        """
-        if os.environ.get("AERO_DISABLE_BOOTSTRAP"):
-            return True
-        if cls._completed and not force:
-            return True
-
-        _telemetry_banner("AERO FUTURE PRE-FLIGHT ENVIRONMENT BOOTSTRAPPING")
-        deps_ok = cls.verify_dependencies()
-        if not deps_ok:
-            _telemetry(
-                "[-] One or more dependencies could not be provisioned; "
-                "continuing in degraded mode."
-            )
-        else:
-            _telemetry("[+] All runtime dependencies satisfied.")
-        cls.ensure_blueprint(root)
-        cls._completed = True
-        return deps_ok
-
 
 __all__ = [
+    "ContractViolationError",
     "RuntimeEnvironmentBootstrapper",
     "REQUIRED_PACKAGES",
+    "SYSTEM_TOOLCHAINS",
     "DEFAULT_BLUEPRINT",
 ]
