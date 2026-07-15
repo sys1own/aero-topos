@@ -866,6 +866,134 @@ def _resolve_direct_compile_output(workspace_root: Path, metadata: Mapping[str, 
     return (output_dir / output_name).resolve()
 
 
+def _annotate_spacetime(network, ledger) -> None:
+    """Annotate every HIN node with a logical spacetime coordinate.
+
+    Each node is placed on a deterministic logical lattice and its mutation is
+    chronologically recorded in the ledger, binding it to an absolute
+    ``T_causal`` index.
+    """
+    from core.spacetime_ledger import CoordinateVector
+
+    for index, node in enumerate(list(network.nodes.values())):
+        coord = CoordinateVector(str(index), str(index * index), "0", -1)
+        ledger.annotate_node(node, coord, {"agent": type(node).__name__})
+
+
+def handle_aero_calculus_build(
+    source_path: str,
+    output_path: str,
+    reduce_graph: bool = True,
+    heal_callback: Optional[Callable[[Any], bool]] = None,
+    max_healing_attempts: int = 1,
+) -> dict:
+    """Compile a source script to Aero-Calculus, verify, reduce and serialize.
+
+    Returns a small report describing the compiled and (optionally) minimized
+    topology.  If the build fails with a structural invariant violation, or if
+    the translated network is empty, an optional *heal_callback* is invoked on
+    the network and the build is retried up to *max_healing_attempts* times
+    before the failure is propagated.
+    """
+    from core.aero_frontend import python_source_to_uast
+    from core.aeroc import save_aeroc
+    from core.hin_vm import UniversalHINNetwork
+    from core.spacetime_ledger import BlockUniverseLedger, RigidityVerifier
+    from core.translator import UASTToHINTranslator
+
+    if heal_callback is None and max_healing_attempts > 0:
+        def _default_heal(network: Any) -> bool:
+            try:
+                report = TopologicalSelfHealer().heal_network(network)
+                return report["healed"] > 0 or report["remaining"] == 0
+            except Exception:  # noqa: BLE001
+                return False
+
+        heal_callback = _default_heal
+
+    print(f"[*] Ingesting Source Context: {source_path}")
+    with open(source_path, "r", encoding="utf-8") as handle:
+        raw_source = handle.read()
+    uast_representation = python_source_to_uast(raw_source)
+
+    print("[*] Performing Homomorphic UAST-to-HIN Translation...")
+    translator = UASTToHINTranslator()
+    network = translator.translate_uast(uast_representation)
+    compiled_nodes = len(network.nodes)
+
+    ledger_path = os.path.join(
+        os.path.dirname(os.path.abspath(output_path)) or ".", "context.aero"
+    )
+
+    last_error: Optional[Exception] = None
+    for attempt in range(max_healing_attempts + 1):
+        try:
+            ledger = BlockUniverseLedger(ledger_path)
+            _annotate_spacetime(network, ledger)
+
+            print("[*] Applying automatic module mitosis (Fiedler spectral partition)...")
+            primary, secondary = translator.execute_mitosis(network)
+            mitosis_split = len(secondary.nodes) > 0
+
+            reduced_steps = 0
+            rigidity = "skipped (--no-reduce)"
+            if reduce_graph:
+                print("[*] Conducting Boundary coordinate-perturbation sweeps...")
+                verifier = RigidityVerifier()
+                boundary = [n for n in primary.nodes.values() if getattr(n, "coordinate", None)]
+                try:
+                    verifier.verify_boundary(boundary)
+                    rigidity = "verified"
+                except Exception as exc:  # noqa: BLE001 - surface as a report field
+                    rigidity = f"anomaly: {exc}"
+
+                print("[*] Reducing graph to its minimized normal form inside the HIN VM...")
+                uni = UniversalHINNetwork.adopt(
+                    primary, ledger=ledger, ledger_path=ledger_path
+                )
+                reduced_steps = uni.run_to_completion()
+
+            save_aeroc(primary, output_path)
+            if mitosis_split:
+                part2 = os.path.splitext(output_path)[0] + ".part2.aeroc"
+                save_aeroc(secondary, part2)
+                print(f"[+] Module mitosis emitted secondary partition -> {part2}")
+            print(f"[+] Aero-Calculus Compilation Complete! Saved to {output_path}")
+
+            return {
+                "source": source_path,
+                "output": output_path,
+                "compiled_nodes": compiled_nodes,
+                "reduced_nodes": len(primary.nodes),
+                "reduction_steps": reduced_steps,
+                "rigidity": rigidity,
+                "mitosis_split": mitosis_split,
+                "ledger_length": len(ledger),
+            }
+        except Exception as exc:
+            last_error = exc
+            if heal_callback is not None and attempt < max_healing_attempts:
+                target = network
+                if "primary" in locals() and primary is not None:
+                    target = primary
+                try:
+                    healed = bool(heal_callback(target))
+                except Exception as heal_exc:  # noqa: BLE001
+                    logger.warning("Healing callback raised: %s", heal_exc)
+                    healed = False
+                if healed:
+                    logger.info(
+                        "Build attempt %d failed (%s); healing applied, retrying",
+                        attempt + 1,
+                        exc,
+                    )
+                    continue
+            raise
+    raise RuntimeError(
+        f"Aero-Calculus build failed after {max_healing_attempts} healing attempt(s): {last_error}"
+    ) from last_error
+
+
 def run_direct_compile(
     workspace_root: str,
     build_context: Optional[Dict[str, Any]] = None,
@@ -886,9 +1014,27 @@ def run_direct_compile(
     source_path = _resolve_direct_compile_source(workspace, metadata)
     output_path = _resolve_direct_compile_output(workspace, metadata, source_path)
 
-    import main as aero_main
+    def _topological_heal(network) -> bool:
+        """Invoke :class:`TopologicalSelfHealer` on a broken HIN network."""
+        try:
+            report = TopologicalSelfHealer().heal_network(network)
+            logger.info(
+                "TopologicalSelfHealer healed %d broken edge(s); %d remaining",
+                report["healed"],
+                report["remaining"],
+            )
+            return report["healed"] > 0 or report["remaining"] == 0
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("TopologicalSelfHealer could not repair network: %s", exc)
+            return False
 
-    report = aero_main.handle_aero_calculus_build(str(source_path), str(output_path), reduce_graph=True)
+    report = handle_aero_calculus_build(
+        str(source_path),
+        str(output_path),
+        reduce_graph=True,
+        heal_callback=_topological_heal,
+        max_healing_attempts=1,
+    )
     outputs = [output_path]
     part2 = output_path.with_suffix("").with_name(output_path.stem + ".part2").with_suffix(".aeroc")
     if part2.exists():
