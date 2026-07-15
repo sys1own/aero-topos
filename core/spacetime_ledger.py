@@ -25,7 +25,8 @@ from __future__ import annotations
 
 from decimal import Decimal, getcontext, localcontext
 from types import MappingProxyType
-from typing import Dict, List, Optional, Sequence
+from collections import deque
+from typing import Dict, List, Optional, Sequence, Set
 import hashlib
 import json
 import os
@@ -293,18 +294,122 @@ class RigidityVerifier:
         beyond the floor -- or a collapsed/non-finite boundary -- signals that
         a structural anomaly has infected the graph topology.
 
+        When the boundary carries the HIN wiring graph, coordinates are verified
+        in topological waves of at most ``max_boundary`` connected nodes rather
+        than as one monolithic O(N³) matrix.  This bounds each eigenvalue pass to
+        the kernel's designed multiplicity, prevents repeated visits to cyclic
+        wiring, and only collapses back to a single sweep for raw coordinate
+        lists that have no node topology.
+
         Raises:
             AnomalyClosureError: if rigidity is violated.
         """
-        coords = self._extract_coords(boundary_ports)
-        if len(coords) < 2:
-            return True  # trivially rigid
+        all_coords = self._extract_coords(boundary_ports)
+        if not all_coords:
+            return True
 
-        for c in coords:
+        for c in all_coords:
             if not c.is_finite():
                 raise AnomalyClosureError(
                     "Boundary coordinate is non-finite; topology corrupted."
                 )
+
+        if len(all_coords) < 2:
+            return True  # trivially rigid
+
+        # If the caller supplied wired HIN nodes, group them by connected
+        # components / topological wave-fronts to avoid a single N³ sweep.
+        node_items = [p for p in boundary_ports if self._is_node_like(p)]
+        if len(node_items) < 2:
+            return self._verify_coord_group(all_coords)
+
+        boundary_by_id = {n.node_id: n for n in node_items}
+        boundary_ids: Set[str] = set(boundary_by_id)
+        visited: Set[str] = set()
+        failures: List[str] = []
+
+        for start in list(boundary_by_id.values()):
+            if start.node_id in visited:
+                continue
+            wave = self._collect_wave(start, boundary_ids, visited)
+            wave_coords = self._extract_coords(wave)
+            if len(wave_coords) >= 2:
+                try:
+                    self._verify_coord_group(wave_coords)
+                except AnomalyClosureError as exc:
+                    failures.append(str(exc))
+
+        if failures:
+            raise AnomalyClosureError("; ".join(failures))
+        return True
+
+    @staticmethod
+    def _is_node_like(obj) -> bool:
+        """Return True when ``obj`` carries the HIN node API we need to walk."""
+        return hasattr(obj, "node_id") and hasattr(obj, "ports") and callable(obj.ports)
+
+    def _collect_wave(
+        self,
+        start,
+        boundary_ids: Set[str],
+        visited: Set[str],
+    ) -> list:
+        """Collect one topological wave of at most ``max_boundary`` nodes.
+
+        Performs an iterative BFS over the boundary's wiring graph using a
+        ``visited`` set as a recursion guard, so cyclic HIN topologies cannot
+        loop forever.  When a starting node is only adjacent to already-visited
+        boundary nodes, one visited neighbour is included as an anchor so the
+        wave always contains at least two points and can still detect drift.
+        """
+        wave: list = []
+        wave_ids: Set[str] = set()
+
+        # Anchor the new wave to an already-verified boundary neighbour when
+        # possible.  This keeps waves connected across the topological front and
+        # prevents single-node waves on the peeling frontier.
+        for port in start.ports():
+            if len(wave) >= self.max_boundary:
+                break
+            if port.target is None:
+                continue
+            nxt = port.target.owner
+            if (
+                nxt is not None
+                and getattr(nxt, "node_id", None) in boundary_ids
+                and nxt.node_id in visited
+                and nxt.node_id not in wave_ids
+            ):
+                wave.append(nxt)
+                wave_ids.add(nxt.node_id)
+                break
+
+        queue: deque = deque([start])
+        while queue and len(wave) < self.max_boundary:
+            node = queue.popleft()
+            if node.node_id in visited or node.node_id in wave_ids:
+                continue
+            visited.add(node.node_id)
+            wave.append(node)
+            wave_ids.add(node.node_id)
+            for port in node.ports():
+                if port.target is None:
+                    continue
+                nxt = port.target.owner
+                if (
+                    nxt is not None
+                    and getattr(nxt, "node_id", None) in boundary_ids
+                    and nxt.node_id not in visited
+                    and nxt.node_id not in wave_ids
+                ):
+                    queue.append(nxt)
+
+        return wave
+
+    def _verify_coord_group(self, coords: Sequence[CoordinateVector]) -> bool:
+        """Run a single rigid-transport eigenvalue check on ``coords``."""
+        if len(coords) < 2:
+            return True
 
         with localcontext() as ctx:
             ctx.prec = _WORK_PREC

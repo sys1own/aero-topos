@@ -562,17 +562,18 @@ def handle_aero_calculus_build(
     primary, secondary = translator.execute_mitosis(network)
     mitosis_split = len(secondary.nodes) > 0
 
-    print("[*] Conducting Boundary coordinate-perturbation sweeps...")
-    verifier = RigidityVerifier()
-    boundary = [n for n in primary.nodes.values() if getattr(n, "coordinate", None)]
-    try:
-        verifier.verify_boundary(boundary)
-        rigidity = "verified"
-    except Exception as exc:  # noqa: BLE001 - surface as a report field
-        rigidity = f"anomaly: {exc}"
-
     reduced_steps = 0
+    rigidity = "skipped (--no-reduce)"
     if reduce_graph:
+        print("[*] Conducting Boundary coordinate-perturbation sweeps...")
+        verifier = RigidityVerifier()
+        boundary = [n for n in primary.nodes.values() if getattr(n, "coordinate", None)]
+        try:
+            verifier.verify_boundary(boundary)
+            rigidity = "verified"
+        except Exception as exc:  # noqa: BLE001 - surface as a report field
+            rigidity = f"anomaly: {exc}"
+
         print("[*] Reducing graph to its minimized normal form inside the HIN VM...")
         # Lower into the UniversalHINNetwork: ledger hot-swapping + per-step
         # algebraic rigidity sweeps drive the reduction.
