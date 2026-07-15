@@ -584,7 +584,7 @@ def _compact_target_source(source_path: Path, manifest: Dict[str, Any]) -> Tuple
 
 
 def _compile_targets(workspace_root: Path, manifest: Dict[str, Any]) -> Dict[str, Any]:
-    targets = _ensure_blueprint_target_paths()
+    targets = _ensure_blueprint_target_paths(workspace_root / "blueprint.aero")
     compiled_targets: List[Dict[str, Any]] = []
     bytes_written = 0
     optimization_level = _manifest_compactor_params(manifest)["optimization_level"]
@@ -1097,8 +1097,9 @@ def run_build(
 
     # Self-targeting detection: collect all target source paths and check for
     # overlap with the engine's own directory.
+    blueprint_targets = _ensure_blueprint_target_paths(workspace / "blueprint.aero")
     _target_paths: List[str] = []
-    for t in _ensure_blueprint_target_paths():
+    for t in blueprint_targets:
         resolved = _resolve_target_paths(workspace, t)
         _target_paths.append(str(resolved["source_path"]))
     self_targeting = detect_self_targeting(_target_paths)
@@ -1108,6 +1109,9 @@ def run_build(
         set_bootstrap_active(True)
         bootstrap_stage = BootstrapStage(workspace)
         bootstrap_stage.prepare()
+        # Seed the stage with every source file the blueprint references so the
+        # compiler backend can resolve targets inside the isolated tree.
+        bootstrap_stage.copy_target_files(blueprint_targets, workspace / "blueprint.aero")
         metadata["bootstrap_mode"] = True
         metadata["bootstrap_stage_dir"] = str(bootstrap_stage.stage_dir)
         logger.info("Self-targeting detected — bootstrap isolation engaged.")

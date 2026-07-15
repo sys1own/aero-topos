@@ -192,6 +192,52 @@ class BootstrapStage:
         logger.info("Bootstrap staging directory prepared: %s", self.stage_dir)
         return self.stage_dir
 
+    def copy_target_files(
+        self,
+        targets: List[Dict[str, Any]],
+        blueprint_path: Optional[Path] = None,
+    ) -> List[Path]:
+        """Copy blueprint target sources and the blueprint into the stage.
+
+        When bootstrap isolation is active, the compilation backend resolves
+        source paths relative to ``stage_dir``.  Every source file referenced by
+        the blueprint (and the blueprint itself, so later stage-local logic can
+        re-read it) must therefore be seeded into the staging tree before any
+        build step runs.
+
+        Paths that fall outside the workspace are skipped with a warning.
+        """
+        copied: List[Path] = []
+        for target in targets:
+            source_rel = str(target.get("source") or target.get("name") or "").replace("\\", "/").strip("/")
+            if not source_rel:
+                logger.warning("Bootstrap target has no source path; skipping")
+                continue
+            source_path = (self.workspace_root / source_rel).resolve()
+            try:
+                relative = source_path.relative_to(self.workspace_root)
+            except ValueError:
+                logger.warning(
+                    "Bootstrap target %s is outside workspace %s; skipping copy",
+                    source_path,
+                    self.workspace_root,
+                )
+                continue
+            if source_path.is_file():
+                dest_path = self.stage_dir / relative
+                dest_path.parent.mkdir(parents=True, exist_ok=True)
+                shutil.copy2(source_path, dest_path)
+                copied.append(dest_path)
+            else:
+                logger.warning("Bootstrap target source missing: %s", source_path)
+        if blueprint_path and Path(blueprint_path).is_file():
+            dest = self.stage_dir / "blueprint.aero"
+            dest.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(blueprint_path, dest)
+            copied.append(dest)
+        logger.info("Bootstrap staged %d target file(s) into %s", len(copied), self.stage_dir)
+        return copied
+
     def redirect_path(self, original: Path) -> Path:
         """Translate a live-tree path to its staging equivalent.
 
