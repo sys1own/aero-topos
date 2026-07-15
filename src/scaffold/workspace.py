@@ -1,6 +1,5 @@
 # -*- coding: utf-8 -*-
-"""
-Out-of-tree workspace isolation.
+"""Out-of-tree workspace isolation.
 
 Keeps the ``aero-universal`` repository completely clean: every transient
 manifest, scaffolded directory layout, build-cache stream and ``target/`` output
@@ -9,6 +8,14 @@ is written **outside** the tool's own tree -- either to a system temp directory
 
 A guard refuses to materialise a workspace inside the tool directory, so a
 mis-configured path can never clutter the tool again.
+
+Staged workflow:
+
+1. ``create()`` materialises a temporary staging directory.
+2. Generated files and any build artifacts are written into the staging dir.
+3. A delegated ``validation_cmd`` runs in the staging dir.
+4. ``commit()`` atomically moves the staging directory to the final
+   ``distribution_directory`` only when validation succeeded.
 """
 
 from __future__ import annotations
@@ -52,6 +59,7 @@ class OutOfTreeWorkspace:
         # Default: keep an explicit distribution dir, discard a temp one.
         self.keep = keep if keep is not None else (self._distribution is not None)
         self._root: Optional[Path] = None
+        self._committed = False
 
     # ------------------------------------------------------------------
 
@@ -65,8 +73,12 @@ class OutOfTreeWorkspace:
     def is_temporary(self) -> bool:
         return self._distribution is None
 
+    @property
+    def is_committed(self) -> bool:
+        return self._committed
+
     def create(self) -> Path:
-        """Materialise the workspace directory (idempotent)."""
+        """Materialise the staging workspace directory (idempotent)."""
         if self._root is not None:
             return self._root
         if self._distribution is not None:
@@ -76,19 +88,49 @@ class OutOfTreeWorkspace:
                     f"distribution_directory '{target}' is inside the tool tree ({TOOL_ROOT}); "
                     "choose a path outside it to keep aero-universal clean."
                 )
-            target.mkdir(parents=True, exist_ok=True)
-            self._root = target
-        else:
-            self._root = Path(tempfile.mkdtemp(prefix=self._prefix)).resolve()
+        self._root = Path(tempfile.mkdtemp(prefix=self._prefix)).resolve()
         return self._root
 
-    def cleanup(self) -> None:
-        """Remove a temporary workspace; preserve an explicit distribution dir."""
-        if self._root is not None and not self.keep and self.is_temporary:
-            shutil.rmtree(self._root, ignore_errors=True)
-            self._root = None
+    def commit(self) -> Path:
+        """Promote the staging directory to the final distribution directory.
 
-    # -- context manager ----------------------------------------------
+        Returns the final path.  No-op when no distribution directory was
+        requested.  Raises if the distribution path is inside the tool tree.
+        """
+        if self._committed or self._distribution is None:
+            return self._root or Path()
+
+        final = self._distribution.resolve()
+        if _is_inside(final, TOOL_ROOT):
+            raise WorkspaceLocationError(
+                f"distribution_directory '{final}' is inside the tool tree ({TOOL_ROOT})"
+            )
+
+        # Replace any prior deliverable with the validated staging tree.
+        if final.exists():
+            if final.is_dir():
+                shutil.rmtree(final)
+            else:
+                final.unlink()
+
+        final.parent.mkdir(parents=True, exist_ok=True)
+        shutil.move(str(self._root), str(final))
+        self._root = final
+        self._committed = True
+        return final
+
+    def cleanup(self) -> None:
+        """Remove the staging workspace."""
+        if self._committed or self._root is None:
+            return
+        if self._distribution is not None and self._root != self._distribution.resolve():
+            # Uncommitted staging for a distribution target -- never keep it.
+            shutil.rmtree(self._root, ignore_errors=True)
+        elif not self.keep:
+            shutil.rmtree(self._root, ignore_errors=True)
+        self._root = None
+
+    # -- context manager --------------------------------------------------
 
     def __enter__(self) -> "OutOfTreeWorkspace":
         self.create()

@@ -294,6 +294,14 @@ def scaffold_command(args: argparse.Namespace) -> int:
             print(str(exc), file=sys.stderr)
             return 1
 
+    # Load an optional blueprint so [validation] validation_cmd and other
+    # context keys are available to the scaffold engine.
+    context: Optional[Dict[str, Any]] = None
+    if args.blueprint and os.path.isfile(args.blueprint):
+        from blueprint_parser import parse_blueprint
+
+        context = parse_blueprint(args.blueprint)
+
     dist = Path(args.distribution_directory) if args.distribution_directory else None
     engine = ScaffoldEngine(logger=print, verbose=True)
     try:
@@ -302,6 +310,7 @@ def scaffold_command(args: argparse.Namespace) -> int:
             name=args.name,
             distribution_directory=dist,
             build=not args.no_build,
+            context=context,
         )
     except SourceEntryNotFound as exc:
         print(f"error: source entry not found: {exc}", file=sys.stderr)
@@ -312,6 +321,9 @@ def scaffold_command(args: argparse.Namespace) -> int:
 
     print(f"Standalone repository generated at {result.workspace}")
     if result.build is not None and not result.build.get("succeeded", True):
+        if (result.build.get("pre_write_validation") or {}).get("succeeded") is False:
+            print("  (pre-write validation failed; distribution not promoted)", file=sys.stderr)
+            return 1
         print("  (note: post-generation build step did not succeed)", file=sys.stderr)
     return 0
 
@@ -789,6 +801,11 @@ def create_parser() -> argparse.ArgumentParser:
     p_scaffold.add_argument("--name", default=None, help="Generated project name.")
     p_scaffold.add_argument(
         "--distribution-directory", default=None, help="Output directory for the repo."
+    )
+    p_scaffold.add_argument(
+        "--blueprint",
+        default=None,
+        help="Optional blueprint that supplies a [validation] validation_cmd and other context.",
     )
     p_scaffold.add_argument(
         "--no-build", action="store_true", help="Skip the build step after generation."

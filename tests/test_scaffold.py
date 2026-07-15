@@ -213,8 +213,11 @@ class TestWorkspace(_Tmp):
     def test_distribution_directory_is_kept(self):
         dist = self.tmp / "out"
         with OutOfTreeWorkspace(distribution_directory=dist) as ws:
+            (ws.root / "marker").write_text("staged")
+            ws.commit()
             self.assertEqual(ws.root, dist.resolve())
         self.assertTrue(dist.exists())  # preserved -- it's the deliverable
+        self.assertEqual((dist / "marker").read_text(), "staged")
 
     def test_refuses_inside_tool_tree(self):
         inside = TOOL_ROOT / "build_artifacts" / "x"

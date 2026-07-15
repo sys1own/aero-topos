@@ -134,6 +134,7 @@ Generate a standalone, out-of-tree repository from a single source entry.
 | `--source-entry` | string | **required** | Source file to scaffold from. |
 | `--name` | string | stem | Generated project name. |
 | `--distribution-directory` | string | `None` | Output directory (temp dir if omitted). |
+| `--blueprint` | string | `None` | Optional blueprint that supplies a `[validation] validation_cmd` and other scaffold context. |
 | `--no-build` | bool | `False` | Skip post-generation build/validation. |
 
 ### 2.6 `infer`
@@ -427,6 +428,7 @@ Additional keys may declare framework-specific objects; each must be a JSON obje
 | `tolerance` | float | `1e-8` | Numerical tolerance. |
 | `test_cases` | list of strings | `[]` | Additional test-case paths. |
 | `execution_command` | string | `""` | Command used to execute the suite. |
+| `validation_cmd` | string | `""` | **Pre-write delegated validation command.** Executed in the staged generated repo before it is promoted to the distribution directory. The command must exit `0` for files to be written. |
 | `validation_required` | bool | `True` | Fail build if validation fails. |
 | `generate_test_shims` | bool | `False` | Auto-generate test stubs during scaffold. |
 
@@ -694,7 +696,27 @@ Then:
 python main.py build --workspace . --blueprint blueprint.aero
 ```
 
-### 4.7 Build strategy routing
+### 4.7 Step 6 — delegated pre-write validation (optional)
+
+The `scaffold` engine can stage the generated repository, run a user-defined validation command, and only promote the files to `--distribution-directory` on success. Configure it in `blueprint.aero`:
+
+```toml
+[validation]
+validation_cmd = "cargo check"
+```
+
+or pass a blueprint to `scaffold`:
+
+```bash
+python main.py scaffold \
+  --source-entry src/lib.rs \
+  --distribution-directory ./dist \
+  --blueprint blueprint.aero
+```
+
+If `validation_cmd` exits with a non-zero status, the exact external command output is printed, the staging directory is discarded, and the distribution directory is **not** written. This keeps the orchestration tool-agnostic: the engine validates through an external command rather than embedding compiler logic.
+
+### 4.8 Build strategy routing
 
 `main.build_command` resolves the blueprint and routes as follows:
 

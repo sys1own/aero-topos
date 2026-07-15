@@ -134,6 +134,32 @@ class ContextBridge:
 
 
 @dataclass
+class Validation:
+    """The ``[validation]`` section: delegated pre-write validation command."""
+
+    suite: str = ""
+    tolerance: float = 1e-8
+    test_cases: List[str] = field(default_factory=list)
+    execution_command: str = ""
+    validation_cmd: str = ""
+    validation_required: bool = True
+    generate_test_shims: bool = False
+
+    @classmethod
+    def from_dict(cls, data: Mapping[str, Any]) -> "Validation":
+        test_cases = data.get("test_cases", [])
+        return cls(
+            suite=str(data.get("suite", "")),
+            tolerance=float(data.get("tolerance", 1e-8)),
+            test_cases=[str(t) for t in test_cases] if isinstance(test_cases, list) else [str(test_cases)],
+            execution_command=str(data.get("execution_command", "")),
+            validation_cmd=str(data.get("validation_cmd", "")),
+            validation_required=bool(data.get("validation_required", True)),
+            generate_test_shims=bool(data.get("generate_test_shims", False)),
+        )
+
+
+@dataclass
 class EnvironmentContract:
     """The ``[environment_contract]`` section: explicit host dependencies."""
 
@@ -172,6 +198,7 @@ class LivingBlueprint:
     abstractions: List[RewriteRule] = field(default_factory=list)
     scaling: Scaling = field(default_factory=Scaling)
     context_bridges: List[ContextBridge] = field(default_factory=list)
+    validation: Validation = field(default_factory=Validation)
     environment_contract: EnvironmentContract = field(default_factory=EnvironmentContract)
 
     # -- construction ---------------------------------------------------------
@@ -206,6 +233,7 @@ class LivingBlueprint:
         environment_contract = EnvironmentContract.from_dict(
             _as_mapping(data.get("environment_contract"))
         )
+        validation = Validation.from_dict(_as_mapping(data.get("validation")))
 
         return cls(
             system=system,
@@ -213,6 +241,7 @@ class LivingBlueprint:
             abstractions=abstractions,
             scaling=scaling,
             context_bridges=bridges,
+            validation=validation,
             environment_contract=environment_contract,
         )
 
