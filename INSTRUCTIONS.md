@@ -50,7 +50,7 @@ source code  →  UAST  →  HIN graph  →  boundary verification  →  reducti
 
 ## 2. CLI Reference
 
-The primary entry point is `main.py`. Pre-flight bootstrapping is automatic unless `AERO_DISABLE_BOOTSTRAP=1` is set.
+The primary entry point is `main.py`.  The engine no longer performs automatic package or toolchain installation.  Every `build` and `scaffold` command first verifies the active [Environment Contract](#36-environment_contract--host-dependency-contract) and exits with a `Contract Violation` message if a required dependency is missing.  Set `[environment_contract] skip_defaults = true` to opt out of the core runtime package checks.
 
 ```bash
 python main.py <command> [options]
@@ -261,7 +261,20 @@ Each sub-table registers a named module that the engine can compile, link, or sc
 | `max_module_complexity` | int | `200` | Hard ceiling on per-module cyclomatic complexity. |
 | `hierarchy_depth` | int | `4` | Maximum recursion depth for hierarchical decomposition. |
 
-### 3.5 `[graph]` — dependency DAG
+### 3.5 `[environment_contract]` — host dependency contract
+
+Explicitly declare the tools and Python packages the host must provide.  The engine treats this as a hard contract: missing items cause an immediate `Contract Violation` exit before any compilation or scaffolding begins.
+
+| Key | Type | Default | Meaning |
+|---|---|---|---|
+| `required_tools` | list of strings | `[]` | Extra binaries that must be on `PATH` (e.g. `node`, `clang`). Languages declared in `[context_registry]` or `inferred_language` are checked automatically, so only additional tooling needs to be listed here. |
+| `required_python_packages` | dict or list | `{}` | Python packages that must be importable. Keys are import names; values are the matching `pip` distribution names. A list is treated as `import_name == pip_name`. |
+| `languages` | list of strings | `[]` | Additional language tags whose default toolchains should be verified (e.g. `rust`, `python`, `c`, `cpp`, `fortran`, `node`). |
+| `skip_defaults` | bool | `False` | If `true`, skip the small set of core runtime packages (`numpy`) and only verify explicit requirements. |
+
+If no `[environment_contract]` is present, the engine still derives tool requirements from the blueprint's languages and checks the core runtime packages.
+
+### 3.6 `[graph]` — dependency DAG
 
 | Key | Type | Default | Meaning |
 |---|---|---|---|
@@ -703,6 +716,8 @@ When a build targets files inside the running engine tree, the **Shadow Bootstra
 3. `copy_target_files()` copies every blueprint source and `blueprint.aero` into the stage.
 4. The build runs against the stage.
 5. `BootstrapStage.validate()` runs the validation suite in the stage.
+
+The bootstrapper never installs missing dependencies.  Any missing tool or package is reported as a `Contract Violation`; install it manually and rerun.
 6. If validation reports `0 errors, 0 anomalies`, `promote()` atomically swaps the stage into the live tree.
 7. If validation fails, `discard()` removes the stage and the live tree is untouched.
 
@@ -762,7 +777,7 @@ python main.py audit --max-rounds 5
 |---|---|---|
 | `0 error(s), 1 anomaly(ies)` during bootstrap | A target source was not copied into `bootstrap_stage`. | Ensure `BootstrapStage.copy_target_files()` is called; check `core/bootstrap/isolation.py`. |
 | `AnomalyClosureError` during reduction | Boundary rigidity failed under perturbation. | Run `heal --aeroc`; increase `scaling.auto_split_threshold` to reduce fragmentation; disable reduction with `--no-reduce`. |
-| `ModuleNotFoundError` in audit | Missing optional dependency. | Set `AERO_DISABLE_BOOTSTRAP=0` or install the package manually. |
+| `ModuleNotFoundError` in audit | Missing optional dependency. | Install the package manually or add it to `[environment_contract] required_python_packages`. |
 | `compiled: 0` | Source produced empty UAST or HIN. | Check that the source uses supported constructs; use `--no-reduce` to inspect raw graph. |
 | `InterfaceChangedError` in evolution | Crossover mutated a wave boundary. | Use `BoundaryAwareMutator` with adaptor insertion (enabled by `evolve_aeroc`). |
 

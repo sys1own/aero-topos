@@ -189,14 +189,21 @@ class PreFlightTestAuditor:
 
     # -- healing -----------------------------------------------------------
     def _route_env_error(self, traceback_text: str) -> bool:
-        """Hand a missing-module failure to the bootstrapper for provisioning."""
+        """Detect a missing-module failure and report it as a contract violation.
+
+        Under the Environment Contract model the engine never installs packages
+        automatically.  The failure is logged; the operator is expected to
+        satisfy the dependency manually and re-run the audit.
+        """
         match = self._MISSING_MODULE_RE.search(traceback_text)
         if not match:
             return False
         module = match.group(1).split(".")[0]
-        from core.environment_bootstrap import RuntimeEnvironmentBootstrapper
-
-        return RuntimeEnvironmentBootstrapper.provision(module)
+        print(
+            f"[->] Contract Violation: missing dependency '{module}'. "
+            "Install it manually and re-run the audit."
+        )
+        return False
 
     def trigger_self_heal_patch(self, fault_file: Optional[str], traceback: str) -> bool:
         """Patch the offending source for a Category-B bug; return success.
