@@ -39,6 +39,11 @@ try:  # Python 3.11+ stdlib TOML reader
 except ModuleNotFoundError:  # pragma: no cover - fallback for <3.11
     import tomli as tomllib  # type: ignore
 
+try:
+    import tomlkit  # type: ignore
+except Exception:  # noqa: BLE001
+    tomlkit = None  # type: ignore[misc]
+
 logger = logging.getLogger("aero.evolve")
 
 # Phase 5 Boundary-Aware execution engine (degrades if not yet wired)
@@ -292,18 +297,6 @@ def genome_signature(genome: Dict[str, Any], schema: List[ParameterSpec]) -> Tup
 # ===========================================================================
 # 4. Structured TOML read / write (directive #4)
 # ===========================================================================
-def _format_toml_value(value: Any) -> str:
-    """Render *value* as a TOML literal."""
-    if isinstance(value, bool):
-        return "true" if value else "false"
-    if isinstance(value, int):
-        return str(value)
-    if isinstance(value, float):
-        # Compact but lossless-enough representation.
-        return repr(round(value, 6))
-    return '"' + str(value).replace('"', '\\"') + '"'
-
-
 def _read_toml_path(doc: Dict[str, Any], dotted_path: str) -> Any:
     """Read a nested value from a parsed TOML document by dotted path."""
     node: Any = doc
@@ -314,15 +307,20 @@ def _read_toml_path(doc: Dict[str, Any], dotted_path: str) -> Any:
     return node
 
 
-def _set_toml_value(text: str, dotted_path: str, value: Any) -> str:
-    """Return *text* with the value at *dotted_path* replaced in-place.
+def _format_toml_value(value: Any) -> str:
+    """Render *value* as a TOML literal (fallback for line-based writer)."""
+    if isinstance(value, bool):
+        return "true" if value else "false"
+    if isinstance(value, int):
+        return str(value)
+    if isinstance(value, float):
+        # Compact but lossless-enough representation.
+        return repr(round(value, 6))
+    return '"' + str(value).replace('"', '\\"') + '"'
 
-    This is a surgical, comment-preserving updater: it locates the owning
-    ``[section]`` (supporting dotted section names like ``cortex.nsga2``) and
-    rewrites only the target ``key = ...`` line. Everything else -- comments,
-    blank lines, ordering -- is preserved byte-for-byte. If the key (or its
-    section) is absent it is appended, so the function is total.
-    """
+
+def _set_toml_value_line_based(text: str, dotted_path: str, value: Any) -> str:
+    """Fallback line-based TOML updater used when ``tomlkit`` is unavailable."""
     *section_parts, key = dotted_path.split(".")
     section = ".".join(section_parts)
     literal = _format_toml_value(value)
@@ -364,6 +362,17 @@ def _set_toml_value(text: str, dotted_path: str, value: Any) -> str:
     return result
 
 
+def _set_toml_path(doc: Any, dotted_path: str, value: Any) -> None:
+    """Set a dotted path on a ``tomlkit`` document/table in-place."""
+    parts = dotted_path.split(".")
+    node = doc
+    for part in parts[:-1]:
+        if part not in node:
+            node[part] = tomlkit.table()
+        node = node[part]
+    node[parts[-1]] = value
+
+
 def extract_blueprint_params(blueprint_path: str, schema: Optional[List[ParameterSpec]] = None) -> Dict[str, Any]:
     """Read the current genome values from the blueprint via structured TOML.
 
@@ -390,9 +399,10 @@ def write_params_to_blueprint(
 ) -> None:
     """Write a genome back into the blueprint, preserving structure & comments.
 
-    Each value is written to the ``path`` declared in its schema entry using the
-    surgical TOML updater, then the whole document is re-validated by parsing it
-    again; an unparyseable result is discarded rather than corrupting the file.
+    Uses ``tomlkit`` to parse the document into an AST, updates each schema
+    ``path`` in-place (creating intermediate tables as needed), then dumps the
+    document and validates it with ``tomllib`` before writing. If ``tomlkit`` is
+    unavailable the older line-based fallback is used.
     """
     schema = schema or load_genome_schema(blueprint_path)
     try:
@@ -402,10 +412,21 @@ def write_params_to_blueprint(
         logger.error("Cannot read blueprint for write: %s", exc)
         return
 
-    updated = text
-    for spec in schema:
-        if spec.name in genome:
-            updated = _set_toml_value(updated, spec.path, spec.clamp(genome[spec.name]))
+    if tomlkit is not None:
+        try:
+            doc = tomlkit.parse(text)
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("Failed to parse %s with tomlkit (%s); starting fresh", blueprint_path, exc)
+            doc = tomlkit.document()
+        for spec in schema:
+            if spec.name in genome:
+                _set_toml_path(doc, spec.path, spec.clamp(genome[spec.name]))
+        updated = tomlkit.dumps(doc)
+    else:
+        updated = text
+        for spec in schema:
+            if spec.name in genome:
+                updated = _set_toml_value_line_based(updated, spec.path, spec.clamp(genome[spec.name]))
 
     # Validate before committing: never leave a corrupt blueprint behind.
     try:

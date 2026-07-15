@@ -2,6 +2,12 @@
 # Aero Topos Phase IV -- Core Runtime Dependencies
 # ==============================================================================
 
+# --- Structured TOML Read/Write ---
+# tomlkit is an AST-preserving TOML writer used by the cNrGA blueprint updater.
+# tomli provides the TOML reader on Python <3.11 where tomllib is absent.
+tomli>=2.0.0; python_version<"3.11"
+tomlkit>=0.15.0,<0.16.0
+
 # --- Syntax Parsing & Structural AST Layers ---
 # tree-sitter powers cross-language AST parsing (Rust/C/C++/Fortran).
 tree-sitter>=0.25,<0.26
