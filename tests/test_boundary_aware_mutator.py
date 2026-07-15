@@ -85,9 +85,11 @@ class TestBoundaryAwareMutator(unittest.TestCase):
         g2 = _graph_from_edges([("x", "y"), ("y", "x")], {"x": 1, "y": 1})
 
         mutator = BoundaryAwareMutator()
+        original_nodes = set(g1.nodes)
         child = mutator.crossover(g1, g2, "b")
-        # Should return the backup copy of parent 1.
-        self.assertEqual(child.nodes, g1.nodes)
+        # Should abort and report failure without mutating parent1.
+        self.assertIs(child, False)
+        self.assertEqual(g1.nodes, original_nodes)
 
 
 def _graph_from_edges(edge_list, arity):

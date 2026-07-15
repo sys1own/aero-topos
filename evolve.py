@@ -1249,13 +1249,21 @@ class BoundaryAwareMutator:
             f"Expected HINGraph or HINNetwork-like object, got {type(obj).__name__}"
         )
 
-    def _connected_component(self, graph: HINGraph, start: str) -> Set[str]:
-        """Return the forward-reachable directed subgraph rooted at ``start``."""
+    def _connected_component(
+        self, graph: HINGraph, start: str, max_size: Optional[int] = None
+    ) -> Set[str]:
+        """Return the forward-reachable directed subgraph rooted at ``start``.
+
+        ``max_size`` bounds the number of nodes collected so that a target
+        subgraph can stop before swallowing its output-context nodes.
+        """
         if start not in graph.nodes:
             return set()
         seen: Set[str] = set()
         stack = [start]
         while stack:
+            if max_size is not None and len(seen) >= max_size:
+                break
             node = stack.pop()
             if node in seen:
                 continue
@@ -1265,8 +1273,10 @@ class BoundaryAwareMutator:
                     stack.append(nbr)
         return seen
 
-    def _extract_subgraph(self, graph: HINGraph, start: str) -> Tuple[Set[str], List[dict]]:
-        nodes = self._connected_component(graph, start)
+    def _extract_subgraph(
+        self, graph: HINGraph, start: str, max_size: Optional[int] = None
+    ) -> Tuple[Set[str], List[dict]]:
+        nodes = self._connected_component(graph, start, max_size)
         records = [
             rec
             for rec in graph.edge_records
@@ -1633,16 +1643,25 @@ class BoundaryAwareMutator:
             raise ValueError("No donor nodes available for interface normalization")
         return donor_nodes[0]
 
-    def crossover(self, parent1: Any, parent2: Any, crossover_point: str) -> HINGraph:
+    def crossover(
+        self,
+        parent1: Any,
+        parent2: Any,
+        crossover_point: str,
+        max_size: Optional[int] = None,
+    ) -> Any:
         """Replace the subgraph around ``crossover_point`` in ``parent1`` with
         a donor subgraph from ``parent2``, normalizing the boundary.
 
+        ``max_size`` bounds the number of nodes collected from each parent so
+        that output-context nodes are not swallowed into the subgraph.
+
         If any invariant check fails after normalization the transaction is
-        aborted and the backup of ``parent1`` is returned unchanged.
+        aborted and ``False`` is returned; the original ``parent1`` graph is
+        never modified.
         """
         graph_a = self._as_graph(parent1)
         graph_b = self._as_graph(parent2)
-        backup = deepcopy(graph_a)
         mutated = deepcopy(graph_a)
 
         if crossover_point not in mutated.nodes:
@@ -1650,9 +1669,9 @@ class BoundaryAwareMutator:
                 "error: evolution failed: Type-safe mutation broke edge conservation: "
                 "asymmetric interface at selection boundaries."
             )
-            return backup
+            return False
 
-        target_nodes = self._connected_component(mutated, crossover_point)
+        target_nodes = self._connected_component(mutated, crossover_point, max_size)
         if crossover_point in graph_b.nodes:
             start_b = crossover_point
         else:
@@ -1668,15 +1687,15 @@ class BoundaryAwareMutator:
                 "error: evolution failed: Type-safe mutation broke edge conservation: "
                 "asymmetric interface at selection boundaries."
             )
-            return backup
+            return False
 
-        donor_nodes, donor_records = self._extract_subgraph(graph_b, start_b)
+        donor_nodes, donor_records = self._extract_subgraph(graph_b, start_b, max_size)
         if not donor_nodes:
             logger.error(
                 "error: evolution failed: Type-safe mutation broke edge conservation: "
                 "asymmetric interface at selection boundaries."
             )
-            return backup
+            return False
 
         # Build a rename map that avoids collisions with existing node ids.
         donor_rename: Dict[str, str] = {}
@@ -1728,7 +1747,7 @@ class BoundaryAwareMutator:
                 "error: evolution failed: Type-safe mutation broke edge conservation: "
                 "asymmetric interface at selection boundaries."
             )
-            return backup
+            return False
         return mutated
 
 
