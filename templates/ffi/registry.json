@@ -1,0 +1,18 @@
+{
+  "default": {
+    "wrapper": "wrapper_generic.rs",
+    "legacy": "legacy_generic.rs"
+  },
+  "apply_unitary": {
+    "legacy": "legacy_apply_unitary.rs"
+  },
+  "compute_braiding_matrix": {
+    "legacy": "legacy_compute_braiding_matrix.rs"
+  },
+  "evolve_state_rk4": {
+    "legacy": "legacy_evolve_state_rk4.rs"
+  },
+  "topological_invariant": {
+    "legacy": "legacy_topological_invariant.rs"
+  }
+}
