@@ -15,17 +15,11 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 
-try:
+
+def _parser():
+    """Lazily load the Tree-sitter Rust parser."""
     from core.parser.universal import _build_parser
-    from tree_sitter import Parser
-except ImportError as exc:  # pragma: no cover - environment guard
-    raise ImportError(
-        "translator.rust_ast requires 'tree-sitter' and 'tree-sitter-rust'. "
-        "Install them with: pip install tree-sitter tree-sitter-rust"
-    ) from exc
 
-
-def _parser() -> Parser:
     return _build_parser("rust")
 
 
