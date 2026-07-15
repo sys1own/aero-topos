@@ -4,6 +4,7 @@ import argparse
 import json
 import logging
 import os
+import shutil
 import sys
 from pathlib import Path
 from typing import List, Optional, Sequence
@@ -102,16 +103,48 @@ def plan_command(args: argparse.Namespace) -> int:
 
 
 def build_command(args: argparse.Namespace) -> int:
-    """Run a build: either the isolated scaffold pipeline or the core engine."""
+    """Run a build: the isolated scaffold pipeline, the core engine, or a cNrGA evolution pass."""
     # Aero-Calculus native target: compile a source script to a .aeroc graph.
     if getattr(args, "source", None):
         return aero_build_command(args)
 
     workspace = args.workspace or "."
     blueprint_path = args.blueprint or os.path.join(workspace, "blueprint.aero")
+    self_host_path = os.path.join(workspace, "self_host.aero")
+    workspace_blueprint = os.path.join(workspace, "blueprint.aero")
 
     from blueprint_parser import parse_blueprint
     from src.scaffold.pipeline import ScaffoldBuildPipeline, should_run_scaffold_pipeline
+
+    if not os.path.isfile(blueprint_path):
+        print(f"error: blueprint not found: {blueprint_path}", file=sys.stderr)
+        return 1
+
+    # If the requested blueprint lives outside the workspace, mirror it so the
+    # orchestrator's hardcoded workspace/blueprint.aero path sees the right file.
+    if os.path.abspath(blueprint_path) != os.path.abspath(workspace_blueprint):
+        try:
+            shutil.copy(blueprint_path, workspace_blueprint)
+        except OSError as exc:
+            print(f"error: cannot copy blueprint to workspace: {exc}", file=sys.stderr)
+            return 1
+
+    # --cycles > 0 triggers the cNrGA evolution loop on self_host.aero before the
+    # final build, removing the need for a separate ``python evolve.py`` step.
+    config = _load_blueprint_config(args.config)
+    evolve_generations = args.cycles if args.cycles is not None and args.cycles > 0 else 0
+    if evolve_generations > 0:
+        import evolve
+
+        if not os.path.isfile(self_host_path):
+            shutil.copy(blueprint_path, self_host_path)
+        evolve.execute_evolution_loop(workspace, evolve_generations)
+        # Promote the evolved blueprint to the active build blueprint.
+        blueprint_path = self_host_path
+        shutil.copy(self_host_path, workspace_blueprint)
+        build_cycles = int(config.get("cycles", 3))
+    else:
+        build_cycles = args.cycles if args.cycles is not None else int(config.get("cycles", 3))
 
     context = parse_blueprint(blueprint_path)
     system = context.get("system", {}) if isinstance(context.get("system"), dict) else {}
@@ -151,10 +184,8 @@ def build_command(args: argparse.Namespace) -> int:
         return 1
 
     # Core self-evolving build cycle.
-    config = _load_blueprint_config(args.config)
-    cycles = args.cycles if args.cycles is not None else int(config.get("cycles", 3))
     try:
-        summary = orchestrator.run_build(workspace, cycles=cycles)
+        summary = orchestrator.run_build(workspace, cycles=build_cycles)
     except Exception as exc:  # noqa: BLE001 - never leak raw tracebacks to the user
         print(f"error: build failed: {exc}", file=sys.stderr)
         return 1
@@ -501,102 +532,17 @@ def commit_overlay_command(args: argparse.Namespace) -> int:
 # ---------------------------------------------------------------------------
 
 
-def parse_source_to_uast(source_path: str) -> dict:
-    """Read a source script and lower it to the normalized UAST dialect."""
-    from core.aero_frontend import python_source_to_uast
-
-    with open(source_path, "r", encoding="utf-8") as handle:
-        source = handle.read()
-    return python_source_to_uast(source)
-
-
-def _annotate_spacetime(network, ledger) -> None:
-    """Annotate every HIN node with a logical spacetime coordinate.
-
-    Each node is placed on a deterministic logical lattice and its mutation is
-    chronologically recorded in the Block Universe ledger, binding the node to
-    an absolute ``T_causal`` index.
-    """
-    from core.spacetime_ledger import CoordinateVector
-
-    for index, node in enumerate(list(network.nodes.values())):
-        coord = CoordinateVector(str(index), str(index * index), "0", -1)
-        ledger.annotate_node(node, coord, {"agent": type(node).__name__})
-
-
-def serialize_and_save_hin(network, output_path: str) -> str:
-    """Serialize a compiled HIN network to a ``.aeroc`` file on disk."""
-    from core.aeroc import save_aeroc
-
-    return save_aeroc(network, output_path)
-
-
 def handle_aero_calculus_build(
     source_path: str, output_path: str, reduce_graph: bool = True
 ) -> dict:
-    """Compile a source script to Aero-Calculus, verify, reduce and serialize.
+    """Thin wrapper around :func:`orchestrator.handle_aero_calculus_build`.
 
-    Returns a small report describing the compiled and (optionally) minimized
-    topology.  The reduced graph is what is persisted to ``output_path`` so the
-    on-disk ``.aeroc`` is the optimized topology.
+    Keeps the public entry point in ``main`` while the implementation (and the
+    retry-with-healing hook) lives in ``orchestrator``.
     """
-    from core.translator import UASTToHINTranslator
-    from core.hin_vm import UniversalHINNetwork
-    from core.spacetime_ledger import RigidityVerifier, BlockUniverseLedger
-
-    print(f"[*] Ingesting Source Context: {source_path}")
-    uast_representation = parse_source_to_uast(source_path)
-
-    print("[*] Performing Homomorphic UAST-to-HIN Translation...")
-    translator = UASTToHINTranslator()
-    network = translator.translate_uast(uast_representation)
-    compiled_nodes = len(network.nodes)
-
-    ledger_path = os.path.join(
-        os.path.dirname(os.path.abspath(output_path)) or ".", "context.aero"
+    return orchestrator.handle_aero_calculus_build(
+        source_path, output_path, reduce_graph=reduce_graph
     )
-    ledger = BlockUniverseLedger(ledger_path)
-    _annotate_spacetime(network, ledger)
-
-    print("[*] Applying automatic module mitosis (Fiedler spectral partition)...")
-    primary, secondary = translator.execute_mitosis(network)
-    mitosis_split = len(secondary.nodes) > 0
-
-    reduced_steps = 0
-    rigidity = "skipped (--no-reduce)"
-    if reduce_graph:
-        print("[*] Conducting Boundary coordinate-perturbation sweeps...")
-        verifier = RigidityVerifier()
-        boundary = [n for n in primary.nodes.values() if getattr(n, "coordinate", None)]
-        try:
-            verifier.verify_boundary(boundary)
-            rigidity = "verified"
-        except Exception as exc:  # noqa: BLE001 - surface as a report field
-            rigidity = f"anomaly: {exc}"
-
-        print("[*] Reducing graph to its minimized normal form inside the HIN VM...")
-        # Lower into the UniversalHINNetwork: ledger hot-swapping + per-step
-        # algebraic rigidity sweeps drive the reduction.
-        uni = UniversalHINNetwork.adopt(primary, ledger=ledger, ledger_path=ledger_path)
-        reduced_steps = uni.run_to_completion()
-
-    serialize_and_save_hin(primary, output_path)
-    if mitosis_split:
-        part2 = os.path.splitext(output_path)[0] + ".part2.aeroc"
-        serialize_and_save_hin(secondary, part2)
-        print(f"[+] Module mitosis emitted secondary partition -> {part2}")
-    print(f"[+] Aero-Calculus Compilation Complete! Saved to {output_path}")
-
-    return {
-        "source": source_path,
-        "output": output_path,
-        "compiled_nodes": compiled_nodes,
-        "reduced_nodes": len(primary.nodes),
-        "reduction_steps": reduced_steps,
-        "rigidity": rigidity,
-        "mitosis_split": mitosis_split,
-        "ledger_length": len(ledger),
-    }
 
 
 def _render_aeroc_topology(network) -> List[str]:

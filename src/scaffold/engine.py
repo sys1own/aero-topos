@@ -10,6 +10,7 @@ End-to-end flow is routed by :mod:`src.scaffold.language_router`:
 
 from __future__ import annotations
 
+import shutil
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional, Union
@@ -118,6 +119,18 @@ class ScaffoldEngine:
         entries = [resolve_source_entry(p, base_dir=base_dir) for p in raw_entries]
         entry = entries[0]
 
+        # Aero-Calculus artifact packaging: if the source entry is a compiled
+        # .aeroc graph (or one of multiple entries is), route to the artifact
+        # packager so any .part2.aeroc partitions are included automatically.
+        if entry.path.suffix.lower() == ".aeroc":
+            return self._scaffold_aeroc(
+                entry=entry,
+                name=name,
+                distribution_directory=distribution_directory,
+                keep=keep,
+                generate_tests=generate_tests,
+            )
+
         target_language = language or resolve_target_language(context, source_entry=entry)
         if len(entries) > 1:
             self._log(
@@ -168,6 +181,81 @@ class ScaffoldEngine:
             keep=keep,
             generate_tests=generate_tests,
             merge_active=merge_active,
+        )
+
+    # ------------------------------------------------------------------
+    # Aero-Calculus artifact packaging
+    # ------------------------------------------------------------------
+
+    def _collect_aeroc_artifacts(
+        self,
+        entry: SourceEntry,
+        workspace_root: Path,
+        repo_dict: Dict[str, Any],
+    ) -> List[str]:
+        """Copy a primary .aeroc and any .part2.aeroc partition into the workspace.
+
+        The relative paths are appended to ``repo_dict['files']`` so the generated
+        build artifact manifest lists them automatically.
+        """
+        artifact_dir = workspace_root / "build_artifacts"
+        artifact_dir.mkdir(parents=True, exist_ok=True)
+        collected: List[str] = []
+
+        def _copy(src: Path) -> None:
+            if not src.is_file():
+                return
+            dest = artifact_dir / src.name
+            shutil.copy2(src, dest)
+            rel = str(dest.relative_to(workspace_root))
+            collected.append(rel)
+            repo_dict.setdefault("files", []).append(rel)
+
+        if entry.path.suffix.lower() == ".aeroc":
+            primary = entry.path
+        else:
+            primary = entry.path.with_suffix(".aeroc")
+        part2 = primary.parent / (primary.stem + ".part2.aeroc")
+        _copy(primary)
+        _copy(part2)
+        if collected:
+            repo_dict.setdefault("aeroc_artifacts", []).extend(collected)
+            self._log(f"aeroc artifacts: {collected}")
+        return collected
+
+    def _scaffold_aeroc(
+        self,
+        *,
+        entry: SourceEntry,
+        name: Optional[str],
+        distribution_directory: Optional[Path],
+        keep: Optional[bool],
+        generate_tests: bool = False,
+    ) -> ScaffoldResult:
+        """Package an .aeroc graph (and its .part2 partition) into a standalone artifact workspace."""
+        workspace = OutOfTreeWorkspace(distribution_directory=distribution_directory, keep=keep)
+        workspace.create()
+        self._log(
+            f"workspace: {workspace.root}  "
+            f"({'temporary, auto-cleaned' if workspace.is_temporary else 'distribution directory'})"
+        )
+
+        repo_dict: Dict[str, Any] = {"root": str(workspace.root), "files": []}
+        self._collect_aeroc_artifacts(entry, workspace.root, repo_dict)
+
+        build_info: Optional[Dict[str, Any]] = None
+        if generate_tests:
+            # No language-specific test harness for raw .aeroc artifacts.
+            build_info = {"tests": "skipped (no test harness for .aeroc artifacts)"}
+
+        return ScaffoldResult(
+            source=entry.to_dict(),
+            repo=repo_dict,
+            shield={"anchors": [], "applied": [], "changed": False, "skipped": "aeroc-artifact"},
+            workspace=str(workspace.root),
+            out_of_tree=True,
+            language="aeroc",
+            build=build_info,
         )
 
     # ------------------------------------------------------------------
@@ -248,6 +336,7 @@ class ScaffoldEngine:
             }
             self._log("merge: skipped — --merge-active requires a successful --build")
 
+        self._collect_aeroc_artifacts(entry, workspace.root, repo_dict)
         return ScaffoldResult(
             source=entry.to_dict(),
             repo=repo_dict,
@@ -387,6 +476,7 @@ class ScaffoldEngine:
         if build:
             build_info = self._validate_python(repo).to_dict()
 
+        self._collect_aeroc_artifacts(entry, workspace.root, repo_dict)
         return ScaffoldResult(
             source=entry.to_dict(),
             repo=repo_dict,
@@ -495,6 +585,7 @@ class ScaffoldEngine:
                     self._log(f"validate: {err}")
             build_info = result.to_dict()
 
+        self._collect_aeroc_artifacts(entry, workspace.root, repo)
         return ScaffoldResult(
             source=entry.to_dict(),
             repo=repo,
